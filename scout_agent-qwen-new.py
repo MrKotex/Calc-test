@@ -30,6 +30,14 @@ NODE_TYPE = {
 def stable_seed(seed: int = 42):
     np.random.seed(seed)
 
+def intent_is_callers_query(query_text: str) -> bool:
+    q = query_text.lower()
+    return "what calls" in q or "who calls" in q or "where is" in q and "called" in q
+
+def intent_is_file_lookup(query_text: str) -> bool:
+    q = query_text.lower()
+    return "which file" in q or "what file" in q
+
 
 def compact_tokens(text: str) -> List[str]:
     if not text:
@@ -83,14 +91,24 @@ def intent_is_symbol_lookup(query_text: str) -> bool:
 
 def is_meta_file(node_data: Dict) -> bool:
     nid = node_data.get("id", "").lower()
-    name = node_data.get("n", "").lower()
-    meta_names = {
-        "build_graph.py",
-        "scout_agent-qwen.py",
-        "benchmark_runner.py",
-        "check_hit.py",
-    }
-    return any(x in nid for x in meta_names) or name in meta_names
+    meta_parts = [
+        "build_graph",
+        "benchmark_runner",
+        "scout_agent",
+        "check_hit",
+        "test_",
+    ]
+    return any(x in nid for x in meta_parts)
+
+def file_prior_score(node_data: Dict, ident: Optional[str]) -> float:
+    if not ident:
+        return 1.0
+    nid = node_data.get("id", "").lower()
+    if f"./{ident}.py::" in nid:
+        return 2.5
+    if f"./{ident}.py" in nid:
+        return 1.8
+    return 1.0
 
 
 def name_score(node_data: Dict, ident: Optional[str]) -> float:
@@ -216,60 +234,77 @@ class CompactScoutAgent:
         q_tokens = self._query_tokens(query_text)
         node_data = self.graph.nodes[node_id]
         n_tokens = self._node_tokens(node_data)
-
+    
         ident = extract_identifier(query_text)
         sim = cosine_from_token_sets(q_tokens, n_tokens)
         sim = max(sim, 0.01)
-
+    
         t = node_data.get("t", -1)
-
+    
         score = sim
         score *= self._type_bonus(node_data, q_tokens)
         score *= self._depth_bonus(node_data)
         score *= name_score(node_data, ident)
-
+        score *= file_prior_score(node_data, ident)
+    
         if intent_is_symbol_lookup(query_text):
             if ident:
                 if t == NODE_TYPE["file"]:
-                    score *= 0.25
+                    score *= 0.15
                 elif t in {NODE_TYPE["function"], NODE_TYPE["async_function"]}:
-                    score *= 1.8
-
+                    score *= 2.2
+                elif t == NODE_TYPE["class"]:
+                    score *= 0.75
+    
         if is_meta_file(node_data):
-            score *= 0.15
-
+            score *= 0.03
+    
         return float(score)
 
     def rank_nodes(self, query_text: str, top_k: int = 8) -> List[Tuple[str, float]]:
         ident = extract_identifier(query_text)
         symbol_lookup = intent_is_symbol_lookup(query_text)
-
-        exact_symbol_nodes = []
+        callers_query = intent_is_callers_query(query_text)
+        file_lookup = intent_is_file_lookup(query_text)
+    
+        symbol_nodes = []
         if ident:
             for node_id in self.graph.nodes:
                 if node_id == ".":
                     continue
                 node = self.graph.nodes[node_id]
-                name = node.get("n", "").lower().split(".")[-1]
-                if name == ident and node.get("t") in {NODE_TYPE["function"], NODE_TYPE["async_function"], NODE_TYPE["class"]}:
-                    exact_symbol_nodes.append(node_id)
-
-        candidates = exact_symbol_nodes if exact_symbol_nodes else list(self.graph.nodes)
-
+                base = node.get("n", "").lower().split(".")[-1]
+                if base == ident:
+                    symbol_nodes.append(node_id)
+    
+        if callers_query and symbol_nodes:
+            caller_scores = {}
+            for sym in symbol_nodes:
+                node = self.graph.nodes[sym]
+                for caller in node.get("cb", []):
+                    caller_scores[caller] = max(
+                        caller_scores.get(caller, 0.0),
+                        self.semantic_score(query_text, caller) * 2.0
+                    )
+            ranked = sorted(caller_scores.items(), key=lambda x: x[1], reverse=True)
+            return ranked[:top_k]
+    
         scored = []
-        for node_id in candidates:
+        for node_id in self.graph.nodes:
             if node_id == ".":
                 continue
-
+    
             node = self.graph.nodes[node_id]
             t = node.get("t", -1)
-
-            if symbol_lookup and ident and t == NODE_TYPE["file"] and not exact_symbol_nodes:
+    
+            if symbol_lookup and not file_lookup and t == NODE_TYPE["file"]:
                 continue
-
+            if file_lookup and t != NODE_TYPE["file"]:
+                continue
+    
             score = self.semantic_score(query_text, node_id)
             scored.append((node_id, score))
-
+    
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:top_k]
 
