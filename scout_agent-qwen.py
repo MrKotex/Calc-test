@@ -41,6 +41,60 @@ def compact_tokens(text: str) -> List[str]:
     parts = re.split(r"[^a-z0-9_./:+*-]+", text)
     return [p for p in parts if p]
 
+def extract_identifier(query_text: str) -> Optional[str]:
+    q = query_text.strip()
+    m = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", q)
+    if not m:
+        return None
+
+    stop = {
+        "where", "what", "how", "is", "the", "a", "an", "defined",
+        "used", "called", "function", "method", "class", "file",
+        "does", "do", "in", "of", "and", "to"
+    }
+    candidates = [x for x in m if x.lower() not in stop]
+    if not candidates:
+        return None
+    return candidates[-1].lower()
+
+
+def is_meta_file(node_data: Dict) -> bool:
+    nid = node_data.get("id", "").lower()
+    name = node_data.get("n", "").lower()
+    meta_names = {
+        "build_graph.py",
+        "scout_agent-qwen.py",
+        "benchmark_runner.py",
+        "check_hit.py",
+    }
+    return any(x in nid for x in meta_names) or name in meta_names
+
+
+def name_score(node_data: Dict, ident: Optional[str]) -> float:
+    if not ident:
+        return 1.0
+
+    name = node_data.get("n", "").lower()
+    nid = node_data.get("id", "").lower()
+
+    if name == ident:
+        return 8.0
+    if name.endswith(f".{ident}"):
+        return 7.0
+    if name.split(".")[-1] == ident:
+        return 7.0
+    if f"::{ident}" in nid:
+        return 6.0
+    if name.startswith(ident):
+        return 2.5
+    if ident in name:
+        return 1.5
+    return 0.5
+
+
+def intent_is_symbol_lookup(query_text: str) -> bool:
+    q = query_text.lower()
+    return any(x in q for x in ["where is", "defined", "definition", "what calls", "used"])
 
 def normalize(v: np.ndarray) -> np.ndarray:
     n = np.linalg.norm(v)
@@ -123,11 +177,7 @@ class CompactScoutAgent:
         toks = []
         toks += compact_tokens(node_data.get("sx", ""))
         toks += compact_tokens(node_data.get("n", ""))
-        toks += compact_tokens(node_data.get("id", ""))
-        parent = node_data.get("p", "")
-        if parent:
-            toks += compact_tokens(parent)
-        return toks
+        return toks[:64]
 
     def _type_bonus(self, node_data: Dict, query_tokens: List[str]) -> float:
         t = node_data.get("t", -1)
@@ -167,23 +217,50 @@ class CompactScoutAgent:
         q_tokens = self._query_tokens(query_text)
         node_data = self.graph.nodes[node_id]
         n_tokens = self._node_tokens(node_data)
-
+    
+        ident = extract_identifier(query_text)
         sim = cosine_from_token_sets(q_tokens, n_tokens)
         sim = max(sim, 0.01)
-
-        exact_name = node_data.get("n", "").lower()
-        if exact_name and exact_name in query_text.lower():
-            sim += 0.25
-
-        return sim * self._type_bonus(node_data, q_tokens) * self._depth_bonus(node_data)
+    
+        t = node_data.get("t", -1)
+    
+        score = sim
+        score *= self._type_bonus(node_data, q_tokens)
+        score *= self._depth_bonus(node_data)
+        score *= name_score(node_data, ident)
+    
+        if intent_is_symbol_lookup(query_text):
+            if ident:
+                if t == NODE_TYPE["file"]:
+                    score *= 0.25
+                elif t in {NODE_TYPE["function"], NODE_TYPE["async_function"]}:
+                    score *= 1.8
+    
+        if is_meta_file(node_data):
+            score *= 0.15
+    
+        return float(score)
 
     def rank_nodes(self, query_text: str, top_k: int = 8) -> List[Tuple[str, float]]:
+        ident = extract_identifier(query_text)
+        symbol_lookup = intent_is_symbol_lookup(query_text)
+    
         scored = []
         for node_id in self.graph.nodes:
             if node_id == ".":
                 continue
+    
+            node = self.graph.nodes[node_id]
+            t = node.get("t", -1)
+            name = node.get("n", "").lower()
+    
+            if symbol_lookup and ident:
+                if t == NODE_TYPE["file"]:
+                    continue
+    
             score = self.semantic_score(query_text, node_id)
             scored.append((node_id, score))
+    
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:top_k]
 
