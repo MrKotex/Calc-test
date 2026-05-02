@@ -285,63 +285,37 @@ class CompactScoutAgent:
                     self.graph[u][v]["pheromone_weight"] += 2.0
 
     def navigate(
-        self,
-        query_text: str,
-        start_node: str = ".",
-        target_node: Optional[str] = None,
-        max_steps: int = 12,
-    ) -> List[str]:
+    self,
+    query_text: str,
+    start_node: str = ".",
+    target_node: Optional[str] = None,
+    max_steps: int = 12,
+) -> List[str]:
         ranked = self.rank_nodes(query_text, top_k=8)
-
+    
         if target_node is None:
             if not ranked:
                 return [start_node]
             target_node = ranked[0][0]
-
-        current_node = start_node
-        path = [current_node]
-        q_tokens = self._query_tokens(query_text)
-
-        for step in range(max_steps):
-            if current_node == target_node:
-                self._update_pheromones(path, success=True)
-                return path
-
-            neighbors = list(self.graph.successors(current_node))
-            if not neighbors:
+    
+        if target_node not in self.graph.nodes:
+            return [start_node]
+    
+        path = []
+        cur = target_node
+    
+        while True:
+            path.append(cur)
+            parent = self.graph.nodes[cur].get("p")
+            if not parent:
                 break
-
-            scores = []
-            for neighbor in neighbors:
-                edge_data = self.graph.get_edge_data(current_node, neighbor) or {}
-                pheromone = edge_data.get("pheromone_weight", 1.0)
-                edge_type = edge_data.get("edge_type", EDGE_TYPE["contains"])
-
-                sem = self.semantic_score(query_text, neighbor)
-                e_bonus = self._edge_bonus(edge_type, q_tokens)
-
-                target_bonus = 1.0
-                if target_node and neighbor == target_node:
-                    target_bonus += 1.0
-                elif target_node and nx.has_path(self.graph, neighbor, target_node):
-                    target_bonus += 0.25
-
-                score = (pheromone ** self.alpha) * (sem ** self.beta) * e_bonus * target_bonus
-                scores.append(max(score, 1e-6))
-
-            probs = np.array(scores, dtype=np.float64)
-            probs = probs / probs.sum()
-
-            next_node = str(np.random.choice(neighbors, p=probs))
-            path.append(next_node)
-            current_node = next_node
-
-        if target_node and nx.has_path(self.graph, start_node, target_node):
-            fallback_path = nx.shortest_path(self.graph, source=start_node, target=target_node)
-            self._update_pheromones(fallback_path, success=True)
-            return fallback_path
-
-        self._update_pheromones(path, success=False)
+            cur = parent
+            if cur == start_node:
+                path.append(cur)
+                break
+    
+        path.reverse()
+        self._update_pheromones(path, success=True)
         return path
 
     def build_ai_prompt(self, path_taken: List[str], query_text: str, top_k_ranked: int = 6) -> str:
