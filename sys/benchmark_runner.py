@@ -1,23 +1,25 @@
 import json
-import subprocess
+import time
 from pathlib import Path
+from scout_agent_binary import BinaryScoutAgent
 
 QUESTIONS_FILE = "sys/benchmark_questions.json"
-RUN_RESULT_FILE = ".context-tree/run_result.json"
-GRAPH_FILE = ".context-tree/code_graph_ai.json"
 OUT_FILE = ".context-tree/benchmark_results.json"
-
 
 def hit_at_k(ranked_nodes, gold_nodes, k):
     top = [x[0] for x in ranked_nodes[:k]]
     return any(g in top for g in gold_nodes)
 
-
 def path_hit(path_taken, gold_nodes):
     return any(g in path_taken for g in gold_nodes)
 
-
 def main():
+    # Initialize BinaryScoutAgent directly
+    agent = BinaryScoutAgent(
+        index_path=".context-tree/memory_index.bin",
+        content_path=".context-tree/memory_content.bin"
+    )
+
     with open(QUESTIONS_FILE, "r", encoding="utf-8") as f:
         questions = json.load(f)
 
@@ -25,25 +27,20 @@ def main():
     total_h1 = 0
     total_h3 = 0
     total_ph = 0
+    total_duration = 0.0
 
     for item in questions:
         query = item["query"]
         gold = item["gold_nodes"]
 
-        cmd = [
-            "python",
-            "sys/scout_agent-qwen-new.py",
-            "--graph", GRAPH_FILE,
-            "--query", query,
-            "--save-run", RUN_RESULT_FILE
-        ]
-        subprocess.run(cmd, check=True)
-
-        with open(RUN_RESULT_FILE, "r", encoding="utf-8") as f:
-            run = json.load(f)
-
-        ranked = run.get("ranked_nodes", [])
-        path = run.get("path_taken", [])
+        t0 = time.perf_counter()
+        
+        # Direct method calls instead of subprocess
+        ranked = agent.rank_nodes(query, top_k=5)
+        path = agent.navigate(query_text=query, start_node=".")
+        prompt = agent.build_ai_prompt(path, query, top_k_ranked=6)
+        
+        dt = time.perf_counter() - t0
 
         h1 = hit_at_k(ranked, gold, 1)
         h3 = hit_at_k(ranked, gold, 3)
@@ -52,19 +49,20 @@ def main():
         total_h1 += int(h1)
         total_h3 += int(h3)
         total_ph += int(ph)
+        total_duration += dt
 
         results.append({
             "id": item["id"],
             "query": query,
             "gold_nodes": gold,
-            "top_1": run.get("top_1"),
-            "ranked_nodes": ranked,
+            "top_1": ranked[0][0] if ranked else None,
+            "ranked_nodes": [[nid, float(score)] for nid, score in ranked],
             "path_taken": path,
             "hit@1": h1,
             "hit@3": h3,
             "path_hit": ph,
-            "prompt_char_count": run.get("prompt_char_count"),
-            "duration_sec": run.get("duration_sec"),
+            "prompt_char_count": len(prompt),
+            "duration_sec": dt,
         })
 
     summary = {
@@ -72,6 +70,7 @@ def main():
         "hit@1_rate": total_h1 / len(questions) if questions else 0.0,
         "hit@3_rate": total_h3 / len(questions) if questions else 0.0,
         "path_hit_rate": total_ph / len(questions) if questions else 0.0,
+        "avg_duration_sec": total_duration / len(questions) if questions else 0.0,
         "results": results,
     }
 
@@ -84,6 +83,7 @@ def main():
         "hit@1_rate": summary["hit@1_rate"],
         "hit@3_rate": summary["hit@3_rate"],
         "path_hit_rate": summary["path_hit_rate"],
+        "avg_duration_sec": summary["avg_duration_sec"],
         "out_file": OUT_FILE,
     }, indent=2))
 
