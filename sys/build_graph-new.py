@@ -18,6 +18,8 @@ EXCLUDED_DIRS = {
     "node_modules",
     "dist",
     "build",
+    "OLD",
+    "sys"
 }
 
 INCLUDED_EXTENSIONS = {".py"}
@@ -344,6 +346,21 @@ class Builder:
         argc = get_argc(node)
         doc = bool(ast.get_docstring(node) or "")
         t = NODE_TYPE["async_function"] if isinstance(node, ast.AsyncFunctionDef) else NODE_TYPE["function"]
+        
+        # 🔍 NEW: Extract decorators & optional route paths
+        decs = []
+        routes = []
+        for dec in getattr(node, "decorator_list", []):
+            if isinstance(dec, ast.Name):
+                decs.append(dec.id)
+            elif isinstance(dec, ast.Attribute):
+                decs.append(dec.attr)
+            elif isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
+                decs.append(dec.func.attr)
+                # Extract route if present: @app.route("/calc/add", methods=["GET"])
+                if dec.args and isinstance(dec.args[0], ast.Constant):
+                    routes.append(str(dec.args[0].value))
+        
         sx = make_sx(t, full, rp, sig, argc, start, end, doc, op_code_from_tree(node))
 
         obj = {
@@ -362,12 +379,15 @@ class Builder:
             "im": [],
             "cl": collect_calls(node),
             "cb": [],
+            "dec": decs,          # 🔍 NEW
+            "routes": routes,     # 🔍 NEW
         }
         self.add_node(obj)
         self.add_edge(parent, nid, EDGE_TYPE["contains"])
         self.nodes[self.node_idx[parent]]["ch"].append(nid)
         self.sym_idx.setdefault(base, []).append(nid)
         self.topo += 1
+
 
     def resolve_import_edges(self):
         for node in self.nodes:

@@ -1,0 +1,489 @@
+{
+  "total_queries": 12,
+  "hit@1_rate": 0.8333333333333334,
+  "hit@3_rate": 0.9166666666666666,
+  "path_hit_rate": 0.8333333333333334,
+  "results": [
+    {
+      "id": "q1",
+      "query": "Where is the Calculator class defined?",
+      "gold_nodes": [
+        "./calculator.py::Calculator"
+      ],
+      "top_1": "./calculator.py::Calculator",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator",
+          122.47200000000001
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          86.92992000000002
+        ],
+        [
+          "./calculator.py::Calculator.reset",
+          86.92992000000002
+        ],
+        [
+          "./calculator.py::Calculator.divide",
+          86.92992000000002
+        ],
+        [
+          "./calculator.py::Calculator.multiply",
+          86.92992000000002
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./calculator.py",
+        "./calculator.py::Calculator"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1605,
+      "duration_sec": 0.019196699999156408
+    },
+    {
+      "id": "q2",
+      "query": "Where is the divide method located?",
+      "gold_nodes": [
+        "./calculator.py::Calculator.divide"
+      ],
+      "top_1": "./calculator.py::Calculator.divide",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator.divide",
+          1.2073600000000002
+        ],
+        [
+          "./main.py::Main.calculate",
+          0.17248000000000008
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          0.17248000000000008
+        ],
+        [
+          "./calculator.py::Calculator.reset",
+          0.17248000000000008
+        ],
+        [
+          "./calculator.py::Calculator.multiply",
+          0.17248000000000008
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./calculator.py",
+        "./calculator.py::Calculator",
+        "./calculator.py::Calculator.divide"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1828,
+      "duration_sec": 0.019540799999958836
+    },
+    {
+      "id": "q3",
+      "query": "Which file contains the Main class?",
+      "gold_nodes": [
+        "./main.py::Main"
+      ],
+      "top_1": "./main.py",
+      "ranked_nodes": [
+        [
+          "./main.py",
+          14.152320000000001
+        ],
+        [
+          "./sys/inspect_graph.py",
+          0.07020000000000001
+        ],
+        [
+          "./calculator.py",
+          0.028221463501453405
+        ],
+        [
+          "./sys/build_graph-new.py",
+          0.0021060000000000002
+        ],
+        [
+          "./sys/benchmark_runner.py",
+          0.0021060000000000002
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./main.py"
+      ],
+      "hit@1": false,
+      "hit@3": false,
+      "path_hit": false,
+      "prompt_char_count": 1057,
+      "duration_sec": 0.005763899996964028
+    },
+    {
+      "id": "q4",
+      "query": "Where is the calculate method of the Main class defined?",
+      "gold_nodes": [
+        "./main.py::Main.calculate"
+      ],
+      "top_1": "./main.py::Main.calculate",
+      "ranked_nodes": [
+        [
+          "./main.py::Main.calculate",
+          115.90656000000001
+        ],
+        [
+          "./main.py::Main",
+          76.54500000000002
+        ],
+        [
+          "./main.py::Main.run",
+          72.44160000000002
+        ],
+        [
+          "./main.py::Main.__init__",
+          72.44160000000002
+        ],
+        [
+          "./main.py::calculate",
+          23.2848
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./main.py::Main",
+        "./main.py::Main.calculate"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1377,
+      "duration_sec": 0.022270199999184115
+    },
+    {
+      "id": "q5",
+      "query": "Where is the `/calculate` endpoint defined?",
+      "gold_nodes": [
+        "./main.py::calculate"
+      ],
+      "top_1": "./main.py::calculate",
+      "ranked_nodes": [
+        [
+          "./main.py::calculate",
+          55.88352000000001
+        ],
+        [
+          "./main.py::Main.calculate",
+          20.283648000000003
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          0.12936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.reset",
+          0.12936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.divide",
+          0.12936000000000003
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./main.py::calculate"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1517,
+      "duration_sec": 0.020179200000711717
+    },
+    {
+      "id": "q6",
+      "query": "Where is the add method located?",
+      "gold_nodes": [
+        "./calculator.py::Calculator.add"
+      ],
+      "top_1": "./calculator.py::Calculator.add",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator.add",
+          1.2073600000000002
+        ],
+        [
+          "./main.py::Main.calculate",
+          0.17248000000000008
+        ],
+        [
+          "./calculator.py::Calculator.reset",
+          0.17248000000000008
+        ],
+        [
+          "./calculator.py::Calculator.divide",
+          0.17248000000000008
+        ],
+        [
+          "./calculator.py::Calculator.multiply",
+          0.17248000000000008
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./calculator.py",
+        "./calculator.py::Calculator",
+        "./calculator.py::Calculator.add"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1825,
+      "duration_sec": 0.01971419999972568
+    },
+    {
+      "id": "q7",
+      "query": "Where is the subtract method located?",
+      "gold_nodes": [
+        "./calculator.py::Calculator.subtract"
+      ],
+      "top_1": "./calculator.py::Calculator.subtract",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator.subtract",
+          1.2073600000000002
+        ],
+        [
+          "./main.py::Main.calculate",
+          0.17248000000000008
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          0.17248000000000008
+        ],
+        [
+          "./calculator.py::Calculator.reset",
+          0.17248000000000008
+        ],
+        [
+          "./calculator.py::Calculator.divide",
+          0.17248000000000008
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./calculator.py",
+        "./calculator.py::Calculator",
+        "./calculator.py::Calculator.subtract"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1830,
+      "duration_sec": 0.020056099998328136
+    },
+    {
+      "id": "q8",
+      "query": "Where is the multiply method located?",
+      "gold_nodes": [
+        "./calculator.py::Calculator.multiply"
+      ],
+      "top_1": "./calculator.py::Calculator.multiply",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator.multiply",
+          1.2073600000000002
+        ],
+        [
+          "./main.py::Main.calculate",
+          0.17248000000000008
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          0.17248000000000008
+        ],
+        [
+          "./calculator.py::Calculator.reset",
+          0.17248000000000008
+        ],
+        [
+          "./calculator.py::Calculator.divide",
+          0.17248000000000008
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./calculator.py",
+        "./calculator.py::Calculator",
+        "./calculator.py::Calculator.multiply"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1830,
+      "duration_sec": 0.02047139999922365
+    },
+    {
+      "id": "q9",
+      "query": "Where is the reset method of the Calculator class?",
+      "gold_nodes": [
+        "./calculator.py::Calculator.reset"
+      ],
+      "top_1": "./calculator.py::Calculator.reset",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator.reset",
+          115.90656000000001
+        ],
+        [
+          "./calculator.py::Calculator",
+          76.54500000000002
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          72.44160000000002
+        ],
+        [
+          "./calculator.py::Calculator.divide",
+          72.44160000000002
+        ],
+        [
+          "./calculator.py::Calculator.multiply",
+          72.44160000000002
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./calculator.py",
+        "./calculator.py::Calculator",
+        "./calculator.py::Calculator.reset"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1617,
+      "duration_sec": 0.019836600000417093
+    },
+    {
+      "id": "q10",
+      "query": "Where is the run method of the Main class?",
+      "gold_nodes": [
+        "./main.py::Main.run"
+      ],
+      "top_1": "./main.py::Main.run",
+      "ranked_nodes": [
+        [
+          "./main.py::Main.run",
+          115.90656000000001
+        ],
+        [
+          "./main.py::Main",
+          76.54500000000002
+        ],
+        [
+          "./main.py::Main.__init__",
+          72.44160000000002
+        ],
+        [
+          "./main.py::Main.calculate",
+          72.44160000000002
+        ],
+        [
+          "./main.py::home",
+          5.821200000000002
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./main.py::Main.run"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1316,
+      "duration_sec": 0.01973329999964335
+    },
+    {
+      "id": "q11",
+      "query": "What file does main.py import?",
+      "gold_nodes": [
+        "./calculator.py"
+      ],
+      "top_1": "./main.py",
+      "ranked_nodes": [
+        [
+          "./main.py",
+          0.5616000000000001
+        ],
+        [
+          "./calculator.py",
+          0.4212000000000001
+        ],
+        [
+          "./sys/inspect_graph.py",
+          0.4212000000000001
+        ],
+        [
+          "./OLD/build_graph.py",
+          0.012636000000000001
+        ],
+        [
+          "./OLD/scout_agent.py",
+          0.012636000000000001
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./main.py"
+      ],
+      "hit@1": false,
+      "hit@3": true,
+      "path_hit": false,
+      "prompt_char_count": 1096,
+      "duration_sec": 0.005806400000437861
+    },
+    {
+      "id": "q12",
+      "query": "Where is the home route handler?",
+      "gold_nodes": [
+        "./main.py::home"
+      ],
+      "top_1": "./main.py::home",
+      "ranked_nodes": [
+        [
+          "./main.py::home",
+          2.1829500000000004
+        ],
+        [
+          "./main.py::Main.calculate",
+          0.12936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          0.12936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.reset",
+          0.12936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.divide",
+          0.12936000000000003
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./main.py",
+        "./main.py::home"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1965,
+      "duration_sec": 0.02171970000199508
+    }
+  ]
+}

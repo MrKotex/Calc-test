@@ -37,19 +37,19 @@ def intent_is_callers_query(query_text: str) -> bool:
 def intent_is_file_lookup(query_text: str) -> bool:
     q = query_text.lower()
     return "which file" in q or "what file" in q
-def query_parts(query_text: str):
-    """Split query into (identifier, context_tokens) — works for any repo."""
+def query_parts(query_text: str) -> Tuple[List[str], List[str]]:
+    """Split query into (primary_identifier, all_context_keywords)"""
     tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", query_text)
     stop = {
         "where", "what", "how", "is", "the", "a", "an", "defined",
         "used", "called", "function", "method", "class", "file",
         "does", "do", "in", "of", "and", "to", "which", "contains",
-        "find", "locate", "definition", "show", "tell", "list",
+        "find", "locate", "definition", "show", "tell", "list", "endpoint", "route", "path"
     }
     useful = [t.lower() for t in tokens if t.lower() not in stop]
-    ident = useful[-1] if useful else None
-    context_toks = useful[:-1] if len(useful) > 1 else []
-    return ident, context_toks
+    primary = useful[-1] if useful else None
+    return primary, useful
+
 
 
 def context_score(node_data: Dict, context_toks: list) -> float:
@@ -275,21 +275,43 @@ class CompactScoutAgent:
         q_tokens = self._query_tokens(query_text)
         node_data = self.graph.nodes[node_id]
         n_tokens = self._node_tokens(node_data)
-    
-        ident, ctx = query_parts(query_text)
+
+        ident, all_keywords = query_parts(query_text)
+        name = node_data.get("n", "").lower()
+        nid = node_data.get("id", "").lower()
+
+        # 🔑 Direct & synonym keyword matching
+        SYNONYMS = {
+            "division": "divide", "subtract": "minus", "multiply": "times", 
+            "add": "plus", "endpoint": "route", "path": "route", "handler": "function"
+        }
+        direct_match = 0.0
+        for kw in all_keywords:
+            if not kw: continue
+            if name == kw or nid == kw:
+                direct_match = max(direct_match, 10.0)
+            elif kw in name or kw in nid:
+                direct_match = max(direct_match, 4.0)
+            elif SYNONYMS.get(kw) and SYNONYMS[kw] in name:
+                direct_match = max(direct_match, 3.5)
+            elif len(set(kw.lower()) & set(name.lower())) > 0.5 * len(kw):
+                direct_match = max(direct_match, 2.5)
+
+        # Cosine similarity (only triggers on token overlap)
         sim = cosine_from_token_sets(q_tokens, n_tokens)
-        sim = max(sim, 0.01)
-    
+
+        # 🔑 FIX: Guarantee non-zero base to prevent collapse
+        base_score = max(sim, direct_match * 0.1, 0.01)
+
         t = node_data.get("t", -1)
-    
-        score = sim
+        score = base_score
         score *= self._type_bonus(node_data, q_tokens)
         score *= self._depth_bonus(node_data)
-        score *= context_score(node_data, ctx)
+        score *= context_score(node_data, all_keywords)
         score *= file_stem_score(node_data, ident)
         score *= name_score(node_data, ident)
         score *= file_prior_score(node_data, ident)
-    
+
         if intent_is_symbol_lookup(query_text):
             if ident:
                 if t == NODE_TYPE["file"]:
@@ -298,11 +320,13 @@ class CompactScoutAgent:
                     score *= 2.2
                 elif t == NODE_TYPE["class"]:
                     score *= 0.75
-    
+
         if is_meta_file(node_data):
             score *= 0.03
-    
+
         return float(score)
+
+
 
     def rank_nodes(self, query_text: str, top_k: int = 8) -> List[Tuple[str, float]]:
         ident, _ = query_parts(query_text)
@@ -348,7 +372,14 @@ class CompactScoutAgent:
             score = self.semantic_score(query_text, node_id)
             scored.append((node_id, score))
     
-        scored.sort(key=lambda x: x[1], reverse=True)
+        # 🔑 Deterministic tie-breaking
+        scored.sort(key=lambda x: (
+            -x[1],  # score descending
+            -int(x[0].split("::")[-1] == ident),  # exact match descending
+            len(x[0]),  # shorter name descending
+            x[0]  # alphabetical ascending
+        ))
+        
         return scored[:top_k]
 
     def _update_pheromones(self, path: List[str], success: bool):
@@ -363,38 +394,45 @@ class CompactScoutAgent:
                     self.graph[u][v]["pheromone_weight"] += 2.0
 
     def navigate(
-    self,
-    query_text: str,
-    start_node: str = ".",
-    target_node: Optional[str] = None,
-    max_steps: int = 12,
-) -> List[str]:
+        self,
+        query_text: str,
+        start_node: str = ".",
+        target_node: Optional[str] = None,
+        max_steps: int = 12,
+    ) -> List[str]:
         ranked = self.rank_nodes(query_text, top_k=8)
     
-        if target_node is None:
-            if not ranked:
-                return [start_node]
-            target_node = ranked[0][0]
+        if not ranked:
+            return [start_node]
+        target_node = target_node or ranked[0][0]
     
         if target_node not in self.graph.nodes:
             return [start_node]
     
         path = []
         cur = target_node
+        steps = 0
     
-        while True:
+        while cur and cur != start_node and steps < max_steps:
             path.append(cur)
-            parent = self.graph.nodes[cur].get("p")
-            if not parent:
+            # Find parent via 'contains' edges
+            parents = [
+                u for u, v, d in self.graph.in_edges(cur, data=True)
+                if d.get("edge_type") == EDGE_TYPE["contains"]
+            ]
+            if not parents:
                 break
-            cur = parent
-            if cur == start_node:
-                path.append(cur)
-                break
+            # Prioritize edges with higher pheromone weight
+            best_parent = max(parents, key=lambda p: self.graph[p][cur].get("pheromone_weight", 1.0))
+            cur = best_parent
+            steps += 1
     
+        if start_node not in path:
+            path.append(start_node)
         path.reverse()
         self._update_pheromones(path, success=True)
         return path
+
 
     def build_ai_prompt(self, path_taken: List[str], query_text: str, top_k_ranked: int = 6) -> str:
         ranked = self.rank_nodes(query_text, top_k=top_k_ranked)

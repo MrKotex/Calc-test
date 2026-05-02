@@ -1,0 +1,62 @@
+[
+  {
+    "id": "q1",
+    "query": "Where is the Calculator class defined?",
+    "gold_nodes": ["./calculator.py::Calculator"]
+  },
+  {
+    "id": "q2",
+    "query": "Where is the divide method located?",
+    "gold_nodes": ["./calculator.py::Calculator.divide"]
+  },
+  {
+    "id": "q3",
+    "query": "Which file contains the Main class?",
+    "gold_nodes": ["./main.py::Main"]
+  },
+  {
+    "id": "q4",
+    "query": "Where is the calculate method of the Main class defined?",
+    "gold_nodes": ["./main.py::Main.calculate"]
+  },
+  {
+    "id": "q5",
+    "query": "Where is the `/calculate` endpoint defined?",
+    "gold_nodes": ["./main.py::calculate"]
+  },
+  {
+    "id": "q6",
+    "query": "Where is the add method located?",
+    "gold_nodes": ["./calculator.py::Calculator.add"]
+  },
+  {
+    "id": "q7",
+    "query": "Where is the subtract method located?",
+    "gold_nodes": ["./calculator.py::Calculator.subtract"]
+  },
+  {
+    "id": "q8",
+    "query": "Where is the multiply method located?",
+    "gold_nodes": ["./calculator.py::Calculator.multiply"]
+  },
+  {
+    "id": "q9",
+    "query": "Where is the reset method of the Calculator class?",
+    "gold_nodes": ["./calculator.py::Calculator.reset"]
+  },
+  {
+    "id": "q10",
+    "query": "Where is the run method of the Main class?",
+    "gold_nodes": ["./main.py::Main.run"]
+  },
+  {
+    "id": "q11",
+    "query": "What file does main.py import?",
+    "gold_nodes": ["./calculator.py"]
+  },
+  {
+    "id": "q12",
+    "query": "Where is the home route handler?",
+    "gold_nodes": ["./main.py::home"]
+  }
+]

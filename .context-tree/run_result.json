@@ -1,0 +1,33 @@
+{
+  "query": "Where is the home route handler?",
+  "top_1": "./main.py::home",
+  "ranked_nodes": [
+    [
+      "./main.py::home",
+      2.1829500000000004
+    ],
+    [
+      "./main.py::Main.calculate",
+      0.12936000000000003
+    ],
+    [
+      "./calculator.py::Calculator.add",
+      0.12936000000000003
+    ],
+    [
+      "./calculator.py::Calculator.reset",
+      0.12936000000000003
+    ],
+    [
+      "./calculator.py::Calculator.divide",
+      0.12936000000000003
+    ]
+  ],
+  "path_taken": [
+    ".",
+    "./main.py",
+    "./main.py::home"
+  ],
+  "prompt_char_count": 1965,
+  "duration_sec": 0.02171970000199508
+}

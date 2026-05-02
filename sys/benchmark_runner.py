@@ -2,7 +2,7 @@ import json
 import subprocess
 from pathlib import Path
 
-QUESTIONS_FILE = "benchmark_questions.json"
+QUESTIONS_FILE = "sys/benchmark_questions.json"
 RUN_RESULT_FILE = ".context-tree/run_result.json"
 GRAPH_FILE = ".context-tree/code_graph_ai.json"
 OUT_FILE = ".context-tree/benchmark_results.json"
@@ -32,7 +32,7 @@ def main():
 
         cmd = [
             "python",
-            "scout_agent-qwen.py",
+            "sys/scout_agent-qwen-new.py",
             "--graph", GRAPH_FILE,
             "--query", query,
             "--save-run", RUN_RESULT_FILE
