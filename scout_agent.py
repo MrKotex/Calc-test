@@ -34,7 +34,7 @@ class ScoutAgent:
         # Initialize default pheromone weights
         for u, v, attrs in graph.edges(data=True):
             if 'pheromone_weight' not in attrs:
-                graph[edges[u, v]]['pheromone_weight'] = 1.0
+                graph[u][v]['pheromone_weight'] = 1.0
                 
         print(f"[Phase 3] Graph loaded with {graph.number_of_nodes()} nodes and {graph.number_of_edges()} edges.")
         return graph
@@ -103,7 +103,7 @@ class ScoutAgent:
         for u, v in self.graph.edges():
             current_ph = self.graph[u][v]['pheromone_weight']
             # Math: \tau = (1 - \rho) * \tau
-            self.graph[u][v]['pheromone_weight'] = max(0.1, current_ph * (1.0 - self.蒸发_rate))
+            self.graph[u][v]['pheromone_weight'] = max(0.1, current_ph * (1.0 - self.evaporation_rate))
 
         # Positive Feedback Loop: Boost chosen path if successful
         if success:
