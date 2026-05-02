@@ -36,4 +36,13 @@ Resets the calculator.
 3. Run the application: `python main.py`
 4. The API will be running at `http://localhost:5000`
 
-vllm serve Qwen/Qwen3.5-0.8B --port 8000 --tensor-parallel-size 1 --max-model-len 262144
+python - <<'PY'
+import json
+with open(".context-tree/code_graph_ai.json", "r", encoding="utf-8") as f:
+    g = json.load(f)
+
+for n in g["nodes"]:
+    nid = n["id"]
+    if "add" in nid.lower() or nid.endswith("::main") or ".main" in nid.lower():
+        print(nid)
+PY
