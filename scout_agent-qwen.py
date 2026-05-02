@@ -165,25 +165,32 @@ if __name__ == "__main__":
     # ---------------------------------------------------------
     # 2. REAL LATENT EXTRACTION (Using Qwen3.5-0.8B)
     # ---------------------------------------------------------
-    print("[Phase 4] Loading REAL Qwen3.5-0.8B model into local memory...")
+    # ---------------------------------------------------------
+    # 2. REAL LATENT EXTRACTION (Using ModelScope / Alibaba)
+    # ---------------------------------------------------------
+    print("[Phase 4] Downloading RAW Qwen3.5-0.8B from Alibaba ModelScope...")
+    from modelscope import snapshot_download
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    import torch
     
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3.5-0.8B")
+    # This downloads from Alibaba instead of Hugging Face
+    model_dir = snapshot_download('qwen/Qwen3.5-0.8B')
+    
+    print("[Phase 4] Loading model into local memory...")
+    tokenizer = AutoTokenizer.from_pretrained(model_dir)
     model = AutoModelForCausalLM.from_pretrained(
-        "Qwen/Qwen3.5-0.8B", 
+        model_dir, 
         device_map="auto", 
         torch_dtype="auto"
     )
     
-    # Let's feed the model the code snippet it hypothetically found at the target node
     prompt = "def add(a, b):\n    return a + b\n"
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
     
     print("[Phase 4] Running forward pass and extracting latents...")
     with torch.no_grad():
-        # output_hidden_states=True intercepts the latent tensors
         outputs = model(**inputs, output_hidden_states=True)
     
-    # Extract the final hidden layer (-1)
     real_hidden_states = outputs.hidden_states[-1] 
     
     print(f"[Phase 4] SUCCESS! Extracted real latent tensor of shape: {real_hidden_states.shape}")
