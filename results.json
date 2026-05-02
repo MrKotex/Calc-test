@@ -1,168 +1,414 @@
 {
-  "total_queries": 6,
-  "hit@1_rate": 0.0,
-  "hit@3_rate": 0.0,
-  "path_hit_rate": 0.16666666666666666,
+  "total_queries": 10,
+  "hit@1_rate": 0.9,
+  "hit@3_rate": 1.0,
+  "path_hit_rate": 0.9,
   "results": [
     {
       "id": "q1",
       "query": "Where is add defined?",
       "gold_nodes": [
-        "./calculator.py::add"
+        "./calculator.py::Calculator.add"
       ],
       "top_1": "./calculator.py::Calculator.add",
       "ranked_nodes": [
         [
           "./calculator.py::Calculator.add",
-          0.148176
+          0.18110400000000001
+        ],
+        [
+          "./calculator.py::Calculator.subtract",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.multiply",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.divide",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.reset",
+          0.012936000000000003
         ]
       ],
       "path_taken": [
         ".",
-        "./build_graph_ai.py",
+        "./calculator.py",
+        "./calculator.py::Calculator",
         "./calculator.py::Calculator.add"
       ],
-      "hit@1": false,
-      "hit@3": false,
-      "path_hit": false,
-      "prompt_char_count": 742,
-      "duration_sec": 0.009591300000465708
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1969,
+      "duration_sec": 0.021795999999085325
     },
     {
       "id": "q2",
-      "query": "Find function add",
+      "query": "Which class contains add?",
       "gold_nodes": [
-        "./calculator.py::add"
+        "./calculator.py::Calculator"
       ],
-      "top_1": "./calculator.py::Calculator.add",
+      "top_1": "./calculator.py::Calculator",
       "ranked_nodes": [
         [
-          "./calculator.py::Calculator.add",
-          2.071075546932221
-        ]
-      ],
-      "path_taken": [
-        ".",
-        "./build_graph_ai.py",
-        "./calculator.py::Calculator.add"
-      ],
-      "hit@1": false,
-      "hit@3": false,
-      "path_hit": false,
-      "prompt_char_count": 738,
-      "duration_sec": 0.005277399999613408
-    },
-    {
-      "id": "q3",
-      "query": "Locate add",
-      "gold_nodes": [
-        "./calculator.py::add"
-      ],
-      "top_1": "./calculator.py::Calculator.add",
-      "ranked_nodes": [
-        [
-          "./calculator.py::Calculator.add",
-          0.148176
-        ]
-      ],
-      "path_taken": [
-        ".",
-        "./build_graph_ai.py",
-        "./calculator.py::Calculator.add"
-      ],
-      "hit@1": false,
-      "hit@3": false,
-      "path_hit": false,
-      "prompt_char_count": 731,
-      "duration_sec": 0.008113600000797305
-    },
-    {
-      "id": "q4",
-      "query": "Which file defines add?",
-      "gold_nodes": [
-        "./calculator.py::add",
-        "./calculator.py"
-      ],
-      "top_1": "./calculator.py::Calculator.add",
-      "ranked_nodes": [
-        [
-          "./calculator.py::Calculator.add",
-          0.08232
-        ]
-      ],
-      "path_taken": [
-        ".",
-        "./calculator.py",
-        "./calculator.py::Calculator",
-        "./calculator.py::Calculator.add"
-      ],
-      "hit@1": false,
-      "hit@3": false,
-      "path_hit": true,
-      "prompt_char_count": 841,
-      "duration_sec": 0.004962799999702838
-    },
-    {
-      "id": "q5",
-      "query": "What calls add?",
-      "gold_nodes": [
-        "./calculator.py::add",
-        "./main.py::main"
-      ],
-      "top_1": "./calculator.py::Calculator.add",
-      "ranked_nodes": [
-        [
-          "./calculator.py::Calculator.add",
-          0.08232
-        ]
-      ],
-      "path_taken": [
-        ".",
-        "./calculator.py",
-        "./calculator.py::Calculator",
-        "./calculator.py::Calculator.add"
-      ],
-      "hit@1": false,
-      "hit@3": false,
-      "path_hit": false,
-      "prompt_char_count": 833,
-      "duration_sec": 0.0048373999998148065
-    },
-    {
-      "id": "q6",
-      "query": "Where is main defined?",
-      "gold_nodes": [
-        "./main.py::main"
-      ],
-      "top_1": "./scout_agent-qwen-new.py::main",
-      "ranked_nodes": [
-        [
-          "./scout_agent-qwen-new.py::main",
-          4.114672858142853
+          "./calculator.py::Calculator",
+          0.08591347425431015
         ],
         [
           "./main.py::Main",
-          2.1770755863189697
+          0.08591347425431015
         ],
         [
-          "./benchmark_runner.py::main",
-          0.617200928721428
+          "./calculator.py::Calculator.add",
+          0.08232
         ],
         [
-          "./scout_agent-qwen.py::main",
-          0.617200928721428
+          "./calculator.py::Calculator.subtract",
+          0.005880000000000001
+        ],
+        [
+          "./calculator.py::Calculator.multiply",
+          0.005880000000000001
         ]
       ],
       "path_taken": [
         ".",
-        "./scout_agent-qwen-new.py",
-        "./scout_agent-qwen-new.py::main"
+        "./calculator.py",
+        "./calculator.py::Calculator"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1638,
+      "duration_sec": 0.01619610000125249
+    },
+    {
+      "id": "q3",
+      "query": "Which file defines add?",
+      "gold_nodes": [
+        "./calculator.py"
+      ],
+      "top_1": "./calculator.py",
+      "ranked_nodes": [
+        [
+          "./calculator.py",
+          0.08273149372637273
+        ],
+        [
+          "./inspect_graph.py",
+          0.08273149372637273
+        ],
+        [
+          "./main.py",
+          0.08273149372637273
+        ],
+        [
+          "./benchmark_runner.py",
+          0.002481944811791182
+        ],
+        [
+          "./build_graph-new.py",
+          0.002481944811791182
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./calculator.py"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1013,
+      "duration_sec": 0.006171899998662411
+    },
+    {
+      "id": "q4",
+      "query": "Where is subtract defined?",
+      "gold_nodes": [
+        "./calculator.py::Calculator.subtract"
+      ],
+      "top_1": "./calculator.py::Calculator.subtract",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator.subtract",
+          0.18110400000000001
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.multiply",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.divide",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.reset",
+          0.012936000000000003
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./calculator.py",
+        "./calculator.py::Calculator",
+        "./calculator.py::Calculator.subtract"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1974,
+      "duration_sec": 0.013458399998853565
+    },
+    {
+      "id": "q5",
+      "query": "Where is multiply defined?",
+      "gold_nodes": [
+        "./calculator.py::Calculator.multiply"
+      ],
+      "top_1": "./calculator.py::Calculator.multiply",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator.multiply",
+          0.18110400000000001
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.subtract",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.divide",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.reset",
+          0.012936000000000003
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./calculator.py",
+        "./calculator.py::Calculator",
+        "./calculator.py::Calculator.multiply"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1974,
+      "duration_sec": 0.014182000000801054
+    },
+    {
+      "id": "q6",
+      "query": "Where is divide defined?",
+      "gold_nodes": [
+        "./calculator.py::Calculator.divide"
+      ],
+      "top_1": "./calculator.py::Calculator.divide",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator.divide",
+          0.18110400000000001
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.subtract",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.multiply",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.reset",
+          0.012936000000000003
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./calculator.py",
+        "./calculator.py::Calculator",
+        "./calculator.py::Calculator.divide"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1972,
+      "duration_sec": 0.01502740000069025
+    },
+    {
+      "id": "q7",
+      "query": "Where is calculator reset defined?",
+      "gold_nodes": [
+        "./calculator.py::Calculator.reset"
+      ],
+      "top_1": "./main.py::reset",
+      "ranked_nodes": [
+        [
+          "./main.py::reset",
+          4.70424001250267
+        ],
+        [
+          "./calculator.py::Calculator.reset",
+          0.18110400000000001
+        ],
+        [
+          "./calculator.py::Calculator",
+          0.04772970791906119
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.subtract",
+          0.012936000000000003
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./main.py",
+        "./main.py::reset"
       ],
       "hit@1": false,
-      "hit@3": false,
+      "hit@3": true,
       "path_hit": false,
-      "prompt_char_count": 1285,
-      "duration_sec": 0.008004700001038145
+      "prompt_char_count": 1612,
+      "duration_sec": 0.013304199999765842
+    },
+    {
+      "id": "q8",
+      "query": "Where is calculate defined?",
+      "gold_nodes": [
+        "./main.py::calculate",
+        "./main.py::Main.calculate"
+      ],
+      "top_1": "./main.py::calculate",
+      "ranked_nodes": [
+        [
+          "./main.py::calculate",
+          4.770970480728151
+        ],
+        [
+          "./main.py::Main.calculate",
+          0.18110400000000001
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.subtract",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.multiply",
+          0.012936000000000003
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./main.py",
+        "./main.py::calculate"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1753,
+      "duration_sec": 0.014026400000147987
+    },
+    {
+      "id": "q9",
+      "query": "Where is reset defined?",
+      "gold_nodes": [
+        "./main.py::reset",
+        "./calculator.py::Calculator.reset"
+      ],
+      "top_1": "./main.py::reset",
+      "ranked_nodes": [
+        [
+          "./main.py::reset",
+          5.029044604396821
+        ],
+        [
+          "./calculator.py::Calculator.reset",
+          0.18110400000000001
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.subtract",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.multiply",
+          0.012936000000000003
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./main.py",
+        "./main.py::reset"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1637,
+      "duration_sec": 0.012950300000738935
+    },
+    {
+      "id": "q10",
+      "query": "Where is run defined?",
+      "gold_nodes": [
+        "./main.py::Main.run"
+      ],
+      "top_1": "./main.py::Main.run",
+      "ranked_nodes": [
+        [
+          "./main.py::Main.run",
+          0.18110400000000001
+        ],
+        [
+          "./calculator.py::Calculator.add",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.subtract",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.multiply",
+          0.012936000000000003
+        ],
+        [
+          "./calculator.py::Calculator.divide",
+          0.012936000000000003
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./main.py",
+        "./main.py::Main",
+        "./main.py::Main.run"
+      ],
+      "hit@1": true,
+      "hit@3": true,
+      "path_hit": true,
+      "prompt_char_count": 1847,
+      "duration_sec": 0.015335799998865696
     }
   ]
 }
