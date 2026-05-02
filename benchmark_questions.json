@@ -2,31 +2,51 @@
   {
     "id": "q1",
     "query": "Where is add defined?",
-    "gold_nodes": ["./calculator.py::add"]
+    "gold_nodes": ["./calculator.py::Calculator.add"]
   },
   {
     "id": "q2",
-    "query": "Find function add",
-    "gold_nodes": ["./calculator.py::add"]
+    "query": "Which class contains add?",
+    "gold_nodes": ["./calculator.py::Calculator"]
   },
   {
     "id": "q3",
-    "query": "Locate add",
-    "gold_nodes": ["./calculator.py::add"]
+    "query": "Which file defines add?",
+    "gold_nodes": ["./calculator.py"]
   },
   {
     "id": "q4",
-    "query": "Which file defines add?",
-    "gold_nodes": ["./calculator.py::add", "./calculator.py"]
+    "query": "Where is subtract defined?",
+    "gold_nodes": ["./calculator.py::Calculator.subtract"]
   },
   {
     "id": "q5",
-    "query": "What calls add?",
-    "gold_nodes": ["./calculator.py::add", "./main.py::main"]
+    "query": "Where is multiply defined?",
+    "gold_nodes": ["./calculator.py::Calculator.multiply"]
   },
   {
     "id": "q6",
-    "query": "Where is main defined?",
-    "gold_nodes": ["./main.py::main"]
+    "query": "Where is divide defined?",
+    "gold_nodes": ["./calculator.py::Calculator.divide"]
+  },
+  {
+    "id": "q7",
+    "query": "Where is calculator reset defined?",
+    "gold_nodes": ["./calculator.py::Calculator.reset"]
+  },
+  {
+    "id": "q8",
+    "query": "Where is calculate defined?",
+    "gold_nodes": ["./main.py::calculate", "./main.py::Main.calculate"]
+  },
+  {
+    "id": "q9",
+    "query": "Where is reset defined?",
+    "gold_nodes": ["./main.py::reset", "./calculator.py::Calculator.reset"]
+  },
+  {
+    "id": "q10",
+    "query": "Where is run defined?",
+    "gold_nodes": ["./main.py::Main.run"]
   }
 ]
