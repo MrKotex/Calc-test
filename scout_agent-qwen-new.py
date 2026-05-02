@@ -37,27 +37,48 @@ def intent_is_callers_query(query_text: str) -> bool:
 def intent_is_file_lookup(query_text: str) -> bool:
     q = query_text.lower()
     return "which file" in q or "what file" in q
+def query_parts(query_text: str):
+    """Split query into (identifier, context_tokens) — works for any repo."""
+    tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", query_text)
+    stop = {
+        "where", "what", "how", "is", "the", "a", "an", "defined",
+        "used", "called", "function", "method", "class", "file",
+        "does", "do", "in", "of", "and", "to", "which", "contains",
+        "find", "locate", "definition", "show", "tell", "list",
+    }
+    useful = [t.lower() for t in tokens if t.lower() not in stop]
+    ident = useful[-1] if useful else None
+    context_toks = useful[:-1] if len(useful) > 1 else []
+    return ident, context_toks
 
-def context_anchor_score(node_data: Dict, query_text: str) -> float:
-    q = query_text.lower()
+
+def context_score(node_data: Dict, context_toks: list) -> float:
+    """Generic context anchoring — no hardcoded file/symbol names."""
+    if not context_toks:
+        return 1.0
     nid = node_data.get("id", "").lower()
-    name = node_data.get("n", "").lower()
+    parent = node_data.get("p", "").lower()
+    all_tokens = set(re.split(r"[^a-z0-9]+", nid)) | set(re.split(r"[^a-z0-9]+", parent))
+    matches = sum(1 for ct in context_toks if ct in all_tokens)
+    total = len(context_toks)
+    if matches == total:
+        return 2.8
+    elif matches > 0:
+        return 1.0 + (matches / total) * 1.5
+    return 0.4
 
-    score = 1.0
 
-    if "calculator" in q:
-        if "calculator.py" in nid or "calculator" in name:
-            score *= 2.5
-        else:
-            score *= 0.35
-
-    if "main" in q:
-        if "/main.py" in nid or name == "main" or name.startswith("main."):
-            score *= 2.0
-        else:
-            score *= 0.5
-
-    return score
+def file_stem_score(node_data: Dict, ident) -> float:
+    """Boost nodes in a file whose stem matches the identifier."""
+    if not ident:
+        return 1.0
+    nid = node_data.get("id", "").lower()
+    stem = re.sub(r"\.py(::.*)?$", "", nid).lstrip("./")
+    if stem == ident or stem.replace("_", "") == ident:
+        return 2.0
+    if ident in stem:
+        return 1.4
+    return 1.0
 
 def compact_tokens(text: str) -> List[str]:
     if not text:
@@ -255,7 +276,7 @@ class CompactScoutAgent:
         node_data = self.graph.nodes[node_id]
         n_tokens = self._node_tokens(node_data)
     
-        ident = extract_identifier(query_text)
+        ident, ctx = query_parts(query_text)
         sim = cosine_from_token_sets(q_tokens, n_tokens)
         sim = max(sim, 0.01)
     
@@ -264,7 +285,8 @@ class CompactScoutAgent:
         score = sim
         score *= self._type_bonus(node_data, q_tokens)
         score *= self._depth_bonus(node_data)
-        score *= context_anchor_score(node_data, query_text)
+        score *= context_score(node_data, ctx)
+        score *= file_stem_score(node_data, ident)
         score *= name_score(node_data, ident)
         score *= file_prior_score(node_data, ident)
     
@@ -283,7 +305,7 @@ class CompactScoutAgent:
         return float(score)
 
     def rank_nodes(self, query_text: str, top_k: int = 8) -> List[Tuple[str, float]]:
-        ident = extract_identifier(query_text)
+        ident, _ = query_parts(query_text)
         symbol_lookup = intent_is_symbol_lookup(query_text)
         callers_query = intent_is_callers_query(query_text)
         file_lookup = intent_is_file_lookup(query_text)
