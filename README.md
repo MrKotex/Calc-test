@@ -35,3 +35,5 @@ Resets the calculator.
 2. Install dependencies: `pip install flask`
 3. Run the application: `python main.py`
 4. The API will be running at `http://localhost:5000`
+
+vllm serve Qwen/Qwen3.5-0.8B --port 8000 --tensor-parallel-size 1 --max-model-len 262144
