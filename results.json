@@ -1,0 +1,168 @@
+{
+  "total_queries": 6,
+  "hit@1_rate": 0.0,
+  "hit@3_rate": 0.0,
+  "path_hit_rate": 0.16666666666666666,
+  "results": [
+    {
+      "id": "q1",
+      "query": "Where is add defined?",
+      "gold_nodes": [
+        "./calculator.py::add"
+      ],
+      "top_1": "./calculator.py::Calculator.add",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator.add",
+          0.148176
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./build_graph_ai.py",
+        "./calculator.py::Calculator.add"
+      ],
+      "hit@1": false,
+      "hit@3": false,
+      "path_hit": false,
+      "prompt_char_count": 742,
+      "duration_sec": 0.009591300000465708
+    },
+    {
+      "id": "q2",
+      "query": "Find function add",
+      "gold_nodes": [
+        "./calculator.py::add"
+      ],
+      "top_1": "./calculator.py::Calculator.add",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator.add",
+          2.071075546932221
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./build_graph_ai.py",
+        "./calculator.py::Calculator.add"
+      ],
+      "hit@1": false,
+      "hit@3": false,
+      "path_hit": false,
+      "prompt_char_count": 738,
+      "duration_sec": 0.005277399999613408
+    },
+    {
+      "id": "q3",
+      "query": "Locate add",
+      "gold_nodes": [
+        "./calculator.py::add"
+      ],
+      "top_1": "./calculator.py::Calculator.add",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator.add",
+          0.148176
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./build_graph_ai.py",
+        "./calculator.py::Calculator.add"
+      ],
+      "hit@1": false,
+      "hit@3": false,
+      "path_hit": false,
+      "prompt_char_count": 731,
+      "duration_sec": 0.008113600000797305
+    },
+    {
+      "id": "q4",
+      "query": "Which file defines add?",
+      "gold_nodes": [
+        "./calculator.py::add",
+        "./calculator.py"
+      ],
+      "top_1": "./calculator.py::Calculator.add",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator.add",
+          0.08232
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./calculator.py",
+        "./calculator.py::Calculator",
+        "./calculator.py::Calculator.add"
+      ],
+      "hit@1": false,
+      "hit@3": false,
+      "path_hit": true,
+      "prompt_char_count": 841,
+      "duration_sec": 0.004962799999702838
+    },
+    {
+      "id": "q5",
+      "query": "What calls add?",
+      "gold_nodes": [
+        "./calculator.py::add",
+        "./main.py::main"
+      ],
+      "top_1": "./calculator.py::Calculator.add",
+      "ranked_nodes": [
+        [
+          "./calculator.py::Calculator.add",
+          0.08232
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./calculator.py",
+        "./calculator.py::Calculator",
+        "./calculator.py::Calculator.add"
+      ],
+      "hit@1": false,
+      "hit@3": false,
+      "path_hit": false,
+      "prompt_char_count": 833,
+      "duration_sec": 0.0048373999998148065
+    },
+    {
+      "id": "q6",
+      "query": "Where is main defined?",
+      "gold_nodes": [
+        "./main.py::main"
+      ],
+      "top_1": "./scout_agent-qwen-new.py::main",
+      "ranked_nodes": [
+        [
+          "./scout_agent-qwen-new.py::main",
+          4.114672858142853
+        ],
+        [
+          "./main.py::Main",
+          2.1770755863189697
+        ],
+        [
+          "./benchmark_runner.py::main",
+          0.617200928721428
+        ],
+        [
+          "./scout_agent-qwen.py::main",
+          0.617200928721428
+        ]
+      ],
+      "path_taken": [
+        ".",
+        "./scout_agent-qwen-new.py",
+        "./scout_agent-qwen-new.py::main"
+      ],
+      "hit@1": false,
+      "hit@3": false,
+      "path_hit": false,
+      "prompt_char_count": 1285,
+      "duration_sec": 0.008004700001038145
+    }
+  ]
+}
