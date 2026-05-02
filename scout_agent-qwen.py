@@ -197,15 +197,18 @@ if __name__ == "__main__":
     
     # ---------------------------------------------------------
     # 3. REALIGN LATENTS
-    # ---------------------------------------------------------
-    extracted_latents_np = real_hidden_states.squeeze(0).cpu().numpy() 
+    extracted_latents_np = real_hidden_states.squeeze(0).float().cpu().numpy() 
     
-    # Qwen3.5-0.8B has a hidden dimension of 1536
-    slm_dim = 1536 
-    large_model_dim = 8192 # Target dimension for downstream large model
-    sequence_length = extracted_latents_np.shape[0]
+    # DYNAMIC DIMENSION DETECTION
+    # extracted_latents_np shape is (sequence_length, hidden_dimension)
+    sequence_length, slm_dim = extracted_latents_np.shape
     
-    # Dummy alignment matrices for testing the math
+    print(f"[Phase 4] Detected SLM dimension: {slm_dim}")
+
+    large_model_dim = 8192 # Your target "large model" dimension
+    
+    # Ensure our dummy alignment matrices match the REAL model dimensions
+    # Math check: (sequence_length, slm_dim) dot (slm_dim, large_model_dim)
     X_matrix = np.random.randn(sequence_length, slm_dim)
     Y_matrix = np.random.randn(sequence_length, large_model_dim)
     
