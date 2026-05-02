@@ -1,0 +1,32 @@
+[
+  {
+    "id": "q1",
+    "query": "Where is add defined?",
+    "gold_nodes": ["./calculator.py::add"]
+  },
+  {
+    "id": "q2",
+    "query": "Find function add",
+    "gold_nodes": ["./calculator.py::add"]
+  },
+  {
+    "id": "q3",
+    "query": "Locate add",
+    "gold_nodes": ["./calculator.py::add"]
+  },
+  {
+    "id": "q4",
+    "query": "Which file defines add?",
+    "gold_nodes": ["./calculator.py::add", "./calculator.py"]
+  },
+  {
+    "id": "q5",
+    "query": "What calls add?",
+    "gold_nodes": ["./calculator.py::add", "./main.py::main"]
+  },
+  {
+    "id": "q6",
+    "query": "Where is main defined?",
+    "gold_nodes": ["./main.py::main"]
+  }
+]
