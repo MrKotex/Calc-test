@@ -2,8 +2,8 @@ import json
 import numpy as np
 import networkx as nx
 import torch
-import torch.nn as nn
-from typing import List, Tuple, Dict
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from typing import List
 
 # ==========================================
 # PHASE 3: ACO SCOUT AGENT
@@ -28,10 +28,10 @@ class ScoutAgent:
         with open(self.graph_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
             
-        # networkx 3.x+ uses 'links' as default for edges
+        # Explicitly set edges="links" to silence the NetworkX 3.6 FutureWarning
         graph = nx.node_link_graph(data, edges="links")
         
-        # Initialize default pheromone weights
+        # Initialize default pheromone weights cleanly
         for u, v, attrs in graph.edges(data=True):
             if 'pheromone_weight' not in attrs:
                 graph[u][v]['pheromone_weight'] = 1.0
@@ -93,7 +93,7 @@ class ScoutAgent:
             path.append(next_node)
             current_node = next_node
 
-        print("[Phase 3] Navigation failed to reach target within max steps.")
+        print("[Phase 3] Navigation failed to reach target within max steps. (Expected behavior with dummy vectors)")
         self._update_pheromones(path, success=False)
         return path
 
@@ -115,60 +115,8 @@ class ScoutAgent:
 
 
 # ==========================================
-# PHASE 4: LATENT EXTRACTION & HANDOFF
+# PHASE 4: MATHEMATICAL ALIGNMENT
 # ==========================================
-
-class CacheOnlyAttentionBackend(nn.Module):
-    def __init__(self, hidden_size: int):
-        super().__init__()
-        self.hidden_size = hidden_size
-        # Linear layers to simulate projection to Key/Value space
-        self.to_fake_k = nn.Linear(hidden_size, hidden_size)
-        self.to_fake_v = nn.Linear(hidden_size, hidden_size)
-
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        """
-        Intercepts hidden states, reshapes into K/V, simulates cache writing,
-        and returns the UNALTERED hidden states.
-        """
-        # Extract and detach to avoid messing up the main computational graph's gradients
-        latent_thoughts = hidden_states.detach().clone()
-        
-        # Reshape into fake Key/Value pairs
-        fake_keys = self.to_fake_k(latent_thoughts)
-        fake_values = self.to_fake_v(latent_thoughts)
-        
-        # [MOCK] Here you would call vLLM's paged attention cache block manager
-        # e.g., cache_engine.write_to_cache(fake_keys, fake_values, block_table)
-        print(f"[Phase 4] CacheOnlyBackend: Extracted {latent_thoughts.shape} and simulated KV write.")
-        
-        # Return original hidden_states to allow the forward pass to continue cleanly
-        return hidden_states
-
-# MOCK: Subclassing the vLLM Qwen execution model
-# In a real environment, you import Qwen2ForCausalLM from vllm.model_executor
-class LatentQwenForCausalLM(nn.Module): 
-    def __init__(self, hidden_size: int = 4096):
-        super().__init__()
-        self.hidden_size = hidden_size
-        # Simulating the main LLM layers
-        self.transformer_layers = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size),
-            nn.ReLU()
-        )
-        # Inject our custom cache-only attention layer
-        self.latent_extractor = CacheOnlyAttentionBackend(hidden_size)
-        self.lm_head = nn.Linear(hidden_size, 50256) # Vocab size
-
-    def forward(self, input_ids_or_embeds: torch.Tensor) -> torch.Tensor:
-        """Custom forward pass implementing the extraction."""
-        x = self.transformer_layers(input_ids_or_embeds)
-        
-        # Extract latents mid-pass
-        x = self.latent_extractor(x)
-        
-        logits = self.lm_head(x)
-        return logits
 
 def realign_latent_vectors(hidden_states: np.ndarray, input_embeds_matrix: np.ndarray, output_embeds_matrix: np.ndarray) -> np.ndarray:
     """
@@ -180,7 +128,6 @@ def realign_latent_vectors(hidden_states: np.ndarray, input_embeds_matrix: np.nd
     # We want to find a transformation matrix W such that: (hidden_states * W) aligns with the target space.
     # Math: W = (X^T X + \lambda I)^{-1} X^T Y
     
-    # For PoC, we will use a dummy ridge regression analytic solution
     lambda_reg = 0.5
     X = input_embeds_matrix
     Y = output_embeds_matrix
@@ -200,37 +147,59 @@ def realign_latent_vectors(hidden_states: np.ndarray, input_embeds_matrix: np.nd
 # EXECUTION
 # ==========================================
 if __name__ == "__main__":
-    # 1. Setup Scout Agent
+    # ---------------------------------------------------------
+    # 1. SCOUT AGENT NAVIGATION
+    # ---------------------------------------------------------
     target_graph = ".context-tree/code_graph.json"
     agent = ScoutAgent(target_graph)
     
-    # Mocking a user query embedded into a 384-dimensional vector
+    # Still using dummy vectors for the PoC navigation until we upgrade build_graph.py
     dummy_query_vector = list(np.random.uniform(-1, 1, 384))
     
-    # In the graph from phase 2, the root is usually the directory name (e.g., ".")
-    # We will pretend the agent is looking for "calculator.py::add"
     root_node = "." 
-    target_node = "./calculator.py::add" # Ensure this matches your actual node IDs
+    target_node = "./calculator.py::add" 
     
     path_taken = agent.navigate(dummy_query_vector, root_node, target_node)
-    print(f"Path taken by agent: {path_taken}")
+    print(f"\n[Agent] Path taken: {path_taken}\n")
     
-    # 2. Setup Latent Handoff
-    # Simulate a batch of 1 sequence, 10 tokens, 4096 hidden size
-    mock_hidden_states = torch.randn(1, 10, 4096) 
+    # ---------------------------------------------------------
+    # 2. REAL LATENT EXTRACTION (Using Qwen3.5-0.8B)
+    # ---------------------------------------------------------
+    print("[Phase 4] Loading REAL Qwen3.5-0.8B model into local memory...")
     
-    custom_qwen = LatentQwenForCausalLM(hidden_size=4096)
-    _ = custom_qwen(mock_hidden_states)
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3.5-0.8B")
+    model = AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen3.5-0.8B", 
+        device_map="auto", 
+        torch_dtype="auto"
+    )
     
-    # 3. Realign Latents
-    # Mock embedding matrices for the SLM (input) and the larger Model (output)
-    slm_dim = 4096
-    large_model_dim = 8192
-    tokens = 100 # Sample vocabulary overlap for regression
+    # Let's feed the model the code snippet it hypothetically found at the target node
+    prompt = "def add(a, b):\n    return a + b\n"
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
     
-    X_matrix = np.random.randn(tokens, slm_dim)
-    Y_matrix = np.random.randn(tokens, large_model_dim)
+    print("[Phase 4] Running forward pass and extracting latents...")
+    with torch.no_grad():
+        # output_hidden_states=True intercepts the latent tensors
+        outputs = model(**inputs, output_hidden_states=True)
     
-    extracted_latents_np = mock_hidden_states.squeeze(0).numpy() # Shape (10, 4096)
+    # Extract the final hidden layer (-1)
+    real_hidden_states = outputs.hidden_states[-1] 
+    
+    print(f"[Phase 4] SUCCESS! Extracted real latent tensor of shape: {real_hidden_states.shape}")
+    
+    # ---------------------------------------------------------
+    # 3. REALIGN LATENTS
+    # ---------------------------------------------------------
+    extracted_latents_np = real_hidden_states.squeeze(0).cpu().numpy() 
+    
+    # Qwen3.5-0.8B has a hidden dimension of 1536
+    slm_dim = 1536 
+    large_model_dim = 8192 # Target dimension for downstream large model
+    sequence_length = extracted_latents_np.shape[0]
+    
+    # Dummy alignment matrices for testing the math
+    X_matrix = np.random.randn(sequence_length, slm_dim)
+    Y_matrix = np.random.randn(sequence_length, large_model_dim)
     
     aligned_tensor = realign_latent_vectors(extracted_latents_np, X_matrix, Y_matrix)
