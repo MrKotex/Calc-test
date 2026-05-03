@@ -12,6 +12,8 @@ EDGE_TYPE = {
     "contains": 1,
     "calls": 2,
     "imports": 3,
+    "references": 4,
+    "feeds": 5,
 }
 
 NODE_TYPE = {
@@ -20,6 +22,11 @@ NODE_TYPE = {
     "class": 2,
     "function": 3,
     "async_function": 4,
+    "table": 5,
+    "column": 6,
+    "view": 7,
+    "schema": 8,
+    "database": 9,
 }
 
 SYNONYMS = {
@@ -59,7 +66,16 @@ def intent_is_callers_query(query_text: str) -> bool:
 
 def intent_is_file_lookup(query_text: str) -> bool:
     q = query_text.lower()
-    return "which file" in q or "what file" in q
+    return "which file" in q or "what file" in q or "which file contains" in q
+
+def intent_is_class_lookup(query_text: str) -> bool:
+    q = query_text.lower()
+    # If query asks for a class, or contains a class name in a context suggesting definition
+    return "class" in q and ("defined" in q or "where is" in q or "contains" in q)
+
+def intent_is_import_query(query_text: str) -> bool:
+    q = query_text.lower()
+    return "imports" in q or "imported" in q or ("what" in q and "import" in q)
 
 def intent_is_symbol_lookup(query_text: str) -> bool:
     q = query_text.lower()
@@ -96,6 +112,13 @@ def is_meta_file(node_data: Dict) -> bool:
     nid = node_data.get("id", "").lower()
     meta_parts = ["build_graph", "benchmark_runner", "scout_agent", "check_hit", "test_"]
     return any(x in nid for x in meta_parts)
+
+def find_node_by_suffix(suffix: str) -> Optional[str]:
+    """Find a node ID that ends with the given suffix."""
+    for nid in self.node_map:
+        if nid.endswith(suffix):
+            return nid
+    return None
 
 class BinaryScoutAgent:
     def __init__(self, index_path: str, content_path: str, embedding_dim: int = 768, alpha: float = 1.0, beta: float = 2.0, evaporation_rate: float = 0.1):
@@ -151,12 +174,12 @@ class BinaryScoutAgent:
                 offset = struct.unpack('<Q', f.read(8))[0]
                 length = struct.unpack('<I', f.read(4))[0]
                 
-                # 8. Embedding (Optional)
+                # 8. Embedding (Optional) - float32
                 vec_len = struct.unpack('<I', f.read(4))[0]
                 vector = []
                 if vec_len > 0:
-                    # Read as doubles (8 bytes each)
-                    vector = [struct.unpack('<d', f.read(8))[0] for _ in range(vec_len)]
+                    # Read as floats (4 bytes each)
+                    vector = [struct.unpack('<f', f.read(4))[0] for _ in range(vec_len)]
                     self.embeddings[nid] = vector
 
                 node_data = {
@@ -263,6 +286,15 @@ class BinaryScoutAgent:
             bonus += 0.35
         if "fl" in query_tokens and t == NODE_TYPE["file"]:
             bonus += 0.35
+        # New types
+        if "table" in query_tokens and t == NODE_TYPE["table"]:
+            bonus += 0.5
+        if "column" in query_tokens and t == NODE_TYPE["column"]:
+            bonus += 0.5
+        if "view" in query_tokens and t == NODE_TYPE["view"]:
+            bonus += 0.5
+        if "html" in query_tokens and t == NODE_TYPE["table"]: # HTML tables are nodes
+            bonus += 0.3
         if t in {NODE_TYPE["function"], NODE_TYPE["async_function"]}:
             bonus += 0.05
         return bonus
@@ -388,11 +420,28 @@ class BinaryScoutAgent:
 
         return float(score)
 
+    def semantic_score_vector(self, query_vector: List[float], node_id: str) -> float:
+        """Cosine similarity between query vector and node embedding."""
+        if node_id not in self.embeddings:
+            return 0.0
+        
+        v1 = query_vector
+        v2 = self.embeddings[node_id]
+        
+        dot = sum(a * b for a, b in zip(v1, v2))
+        norm1 = math.sqrt(sum(a * a for a in v1))
+        norm2 = math.sqrt(sum(b * b for b in v2))
+        
+        if norm1 == 0 or norm2 == 0: return 0.0
+        return dot / (norm1 * norm2)
+
     def rank_nodes(self, query_text: str, top_k: int = 8) -> List[Tuple[str, float]]:
         ident, _ = query_parts(query_text)
         symbol_lookup = intent_is_symbol_lookup(query_text)
         callers_query = intent_is_callers_query(query_text)
         file_lookup = intent_is_file_lookup(query_text)
+        class_lookup = intent_is_class_lookup(query_text)
+        import_lookup = intent_is_import_query(query_text)
     
         symbol_nodes = []
         if ident:
@@ -429,6 +478,43 @@ class BinaryScoutAgent:
                 continue
     
             score = self.semantic_score(query_text, node_id)
+            
+            # 🔑 Takeaway 1: Class vs. Method Disambiguation
+            if class_lookup and ident:
+                # If we are looking for a class, boost class nodes significantly
+                if t == NODE_TYPE["class"]:
+                    if node.get("n", "").lower() == ident:
+                        score *= 10.0 # Strong boost for exact class match
+                    else:
+                        score *= 2.0 # Boost other classes
+                
+            # 🔑 Takeaway 2: Strengthen File Intent Detection
+            if file_lookup:
+                if t == NODE_TYPE["file"]:
+                    # Boost file nodes if query asks for a file
+                    score *= 5.0
+                    # Also boost if the file stem matches the identifier
+                    stem = re.sub(r"\.py$", "", node_id).lstrip("./")
+                    if stem == ident:
+                        score *= 5.0
+
+            # 🔑 Takeaway 3: Fix Import Resolution
+            if import_lookup and ident:
+                # Find the source file node (e.g., "main.py")
+                source_node_id = None
+                for nid, n in self.node_map.items():
+                    if n.get("type") == NODE_TYPE["file"]:
+                        stem = re.sub(r"\.py$", "", nid).lstrip("./")
+                        if stem == ident:
+                            source_node_id = nid
+                            break
+                
+                if source_node_id:
+                    source_node = self.node_map[source_node_id]
+                    imported_files = source_node.get("imports", [])
+                    if node_id in imported_files:
+                        score *= 10.0 # Boost imported files
+            
             scored.append((node_id, score))
     
         # 🔑 Deterministic tie-breaking

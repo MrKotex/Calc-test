@@ -1,1 +1,6 @@
-Flask==3.0.3
+Flask
+beautifulsoup4
+lxml
+sqlglot
+sentence-transformers
+numpy

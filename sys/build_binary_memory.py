@@ -5,6 +5,18 @@ import struct
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+try:
+    from bs4 import BeautifulSoup
+    HAS_BS4 = True
+except ImportError:
+    HAS_BS4 = False
+
+try:
+    import sqlglot
+    HAS_SQLGLOT = True
+except ImportError:
+    HAS_SQLGLOT = False
+
 ROOT_DIR = "."
 OUTPUT_DIR = ".context-tree"
 INDEX_FILE = os.path.join(OUTPUT_DIR, "memory_index.bin")
@@ -23,7 +35,7 @@ EXCLUDED_DIRS = {
     "sys",
 }
 
-INCLUDED_EXTENSIONS = {".py"}
+INCLUDED_EXTENSIONS = {".py", ".html", ".sql"}
 
 NODE_TYPE = {
     "root": 0,
@@ -31,12 +43,19 @@ NODE_TYPE = {
     "class": 2,
     "function": 3,
     "async_function": 4,
+    "table": 5,
+    "column": 6,
+    "view": 7,
+    "schema": 8,
+    "database": 9,
 }
 
 EDGE_TYPE = {
     "contains": 1,
     "calls": 2,
     "imports": 3,
+    "references": 4,
+    "feeds": 5,
 }
 
 TYPE_TOKEN = {
@@ -56,6 +75,9 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 def rel_path(path: Path, root: Path) -> str:
+    # Ensure root is absolute so it works with absolute `path` arguments
+    if not root.is_absolute():
+        root = Path.cwd() / root
     return f"./{path.relative_to(root).as_posix()}"
 
 def token_est(text: str) -> int:
@@ -182,6 +204,232 @@ def make_sx(
     d = 1 if doc else 0
     return f"{TYPE_TOKEN[t]}|N:{n}|F:{f}|S:{s}|A:{argc}|L:{line}|D:{d}|O:{op}"
 
+def make_sx_generic(t: int, n: str, f: str, extra: str = "") -> str:
+    """Generic sx for non-Python files."""
+    return f"TYPE:{t}|N:{n}|F:{f}|X:{extra}"
+
+class ParserRegistry:
+    def __init__(self):
+        self.parsers = {}
+        self.register('.py', self.parse_python)
+        if HAS_BS4:
+            self.register('.html', self.parse_html)
+            self.register('.htm', self.parse_html)
+        if HAS_SQLGLOT:
+            self.register('.sql', self.parse_sql)
+
+    def register(self, ext, func):
+        self.parsers[ext] = func
+
+    def parse_python(self, path: Path, src: str) -> List[Dict]:
+        nodes = []
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            return nodes
+        
+        imports = collect_imports(tree)
+        calls = collect_calls(tree)
+        nodes.append({
+            "id": rel_path(path, Path(".")),
+            "t": NODE_TYPE["file"],
+            "n": path.name,
+            "p": ".",
+            "l": [1, len(src.splitlines())],
+            "a": 0,
+            "d": 1,
+            "sx": make_sx(NODE_TYPE["file"], path.name, rel_path(path, Path(".")), "", 0, 1, len(src.splitlines()), False, "MOD"),
+            "h": sha16(src),
+            "tc": token_est(src),
+            "ch": [],
+            "im": imports,
+            "cl": calls,
+            "cb": [],
+        })
+        
+        module_name = path.stem
+        # We'll handle imports in a separate pass in the builder if needed, 
+        # but for now we just return the file node.
+        return nodes
+
+    def parse_html(self, path: Path, src: str) -> List[Dict]:
+        nodes = []
+        if not HAS_BS4:
+            return nodes
+        
+        soup = BeautifulSoup(src, 'html.parser')
+        file_id = rel_path(path, Path("."))
+        
+        # Extract tables
+        for table in soup.find_all('table'):
+            table_id = f"{file_id}::table.{table.get('id', 'unnamed')}"
+            nodes.append({
+                "id": table_id,
+                "t": NODE_TYPE["table"],
+                "n": table.get('id', 'unnamed'),
+                "p": file_id,
+                "l": [0, 0],
+                "a": 0,
+                "d": 2,
+                "sx": make_sx_generic(NODE_TYPE["table"], table.get('id', 'unnamed'), file_id, "html_table"),
+                "h": sha16(str(table)),
+                "tc": token_est(str(table)),
+                "ch": [],
+                "im": [],
+                "cl": [],
+                "cb": [],
+            })
+            # Extract columns (headers)
+            headers = table.find_all('th')
+            for i, th in enumerate(headers):
+                col_id = f"{table_id}::col.{th.get_text(strip=True)}"
+                nodes.append({
+                    "id": col_id,
+                    "t": NODE_TYPE["column"],
+                    "n": th.get_text(strip=True),
+                    "p": table_id,
+                    "l": [0, 0],
+                    "a": 0,
+                    "d": 3,
+                    "sx": make_sx_generic(NODE_TYPE["column"], th.get_text(strip=True), file_id, "html_header"),
+                    "h": sha16(str(th)),
+                    "tc": token_est(str(th)),
+                    "ch": [],
+                    "im": [],
+                    "cl": [],
+                    "cb": [],
+                })
+                nodes[-1]["ch"] = [] # Ensure list exists
+                nodes[self.node_idx[table_id]]["ch"].append(col_id) # Add to parent if exists
+        
+        return nodes
+
+    def parse_sql(self, path: Path, src: str) -> List[Dict]:
+        nodes = []
+        if not HAS_SQLGLOT:
+            return nodes
+
+        file_id = rel_path(path, Path("."))
+        try:
+            parsed = sqlglot.parse(src, read='postgres') # Default to postgres dialect
+        except Exception:
+            return nodes
+
+        for expression in parsed:
+            if isinstance(expression, sqlglot.exp.CreateTable):
+                table_name = expression.this.name
+                table_id = f"{file_id}::table.{table_name}"
+                
+                # Columns
+                columns = []
+                for col in expression.find_all(sqlglot.exp.ColumnDef):
+                    col_name = col.name
+                    col_id = f"{table_id}::col.{col_name}"
+                    columns.append({
+                        "id": col_id,
+                        "t": NODE_TYPE["column"],
+                        "n": col_name,
+                        "p": table_id,
+                        "l": [0, 0],
+                        "a": 0,
+                        "d": 3,
+                        "sx": make_sx_generic(NODE_TYPE["column"], col_name, file_id, "sql_column"),
+                        "h": sha16(str(col)),
+                        "tc": token_est(str(col)),
+                        "ch": [],
+                        "im": [],
+                        "cl": [],
+                        "cb": [],
+                    })
+                    nodes.append(columns[-1])
+                
+                # Foreign Keys
+                for fk in expression.find_all(sqlglot.exp.ForeignKey):
+                    for target in fk.find_all(sqlglot.exp.Table):
+                        target_name = target.name
+                        nodes.append({
+                            "id": f"{table_id}::fk.{target_name}",
+                            "t": NODE_TYPE["table"], # Or a specific FK type if needed, but table is fine for now
+                            "n": f"fk_{target_name}",
+                            "p": table_id,
+                            "l": [0, 0],
+                            "a": 0,
+                            "d": 3,
+                            "sx": make_sx_generic(NODE_TYPE["references"], f"fk_{target_name}", file_id, "fk_reference"),
+                            "h": sha16(str(fk)),
+                            "tc": token_est(str(fk)),
+                            "ch": [],
+                            "im": [],
+                            "cl": [],
+                            "cb": [],
+                        })
+                        nodes.append(nodes[-1]) # Add to list
+                        # Add edge references
+                        # We'll handle edges in the builder
+
+                table_node = {
+                    "id": table_id,
+                    "t": NODE_TYPE["table"],
+                    "n": table_name,
+                    "p": file_id,
+                    "l": [0, 0],
+                    "a": 0,
+                    "d": 2,
+                    "sx": make_sx_generic(NODE_TYPE["table"], table_name, file_id, "sql_create_table"),
+                    "h": sha16(str(expression)),
+                    "tc": token_est(str(expression)),
+                    "ch": [c["id"] for c in columns],
+                    "im": [],
+                    "cl": [],
+                    "cb": [],
+                }
+                nodes.insert(0, table_node)
+                nodes[0]["ch"] = [c["id"] for c in columns] # Update ch
+                # Add columns to nodes list after table
+                nodes.extend(columns)
+
+            elif isinstance(expression, sqlglot.exp.Create) and isinstance(expression.this, sqlglot.exp.Table):
+                view_name = expression.this.name
+                view_id = f"{file_id}::view.{view_name}"
+                nodes.append({
+                    "id": view_id,
+                    "t": NODE_TYPE["view"],
+                    "n": view_name,
+                    "p": file_id,
+                    "l": [0, 0],
+                    "a": 0,
+                    "d": 2,
+                    "sx": make_sx_generic(NODE_TYPE["view"], view_name, file_id, "sql_view"),
+                    "h": sha16(str(expression)),
+                    "tc": token_est(str(expression)),
+                    "ch": [],
+                    "im": [],
+                    "cl": [],
+                    "cb": [],
+                })
+                # Find referenced tables
+                for table in expression.find_all(sqlglot.exp.Table):
+                    if table.name != view_name:
+                        nodes.append({
+                            "id": f"{view_id}::feeds.{table.name}",
+                            "t": NODE_TYPE["table"],
+                            "n": f"feeds_{table.name}",
+                            "p": view_id,
+                            "l": [0, 0],
+                            "a": 0,
+                            "d": 3,
+                            "sx": make_sx_generic(NODE_TYPE["feeds"], f"feeds_{table.name}", file_id, "feeds_reference"),
+                            "h": sha16(str(table)),
+                            "tc": token_est(str(table)),
+                            "ch": [],
+                            "im": [],
+                            "cl": [],
+                            "cb": [],
+                        })
+                        nodes.append(nodes[-1])
+
+        return nodes
+
 class BinaryMemoryBuilder:
     def __init__(self, root_dir: str):
         self.root = Path(root_dir).resolve()
@@ -194,6 +442,7 @@ class BinaryMemoryBuilder:
         self.content_buffer = b""
         self.content_offsets = {} # Map node_id -> (offset, length)
         self.embeddings = {}
+        self.parser_registry = ParserRegistry()
 
     def set_embedding(self, node_id: str, vector: List[float]):
             """Store embedding for a node."""
@@ -246,143 +495,58 @@ class BinaryMemoryBuilder:
         self.resolve_call_edges()
         self.compute_called_by()
         self.compute_depths()
+        self.generate_embeddings()
 
     def process_file(self, path: Path):
         rp = rel_path(path, self.root)
         src = read_text(path)
-        lines = src.splitlines(keepends=True)
+        
+        # Use Parser Registry
+        nodes = self.parser_registry.parsers.get(path.suffix, self.parse_python)(path, src)
+        
+        for node in nodes:
+            self.add_node(node)
+            self.add_edge(".", node["id"], EDGE_TYPE["contains"])
+            self.nodes[self.node_idx["."]]["ch"].append(node["id"])
+            self.topo += 1
+            
+            # Store imports/calls for resolution
+            if path.suffix == '.py':
+                self.imp_idx[path.stem] = node["id"]
+                # Store calls for resolution
+                for call in node.get("cl", []):
+                    self.sym_idx.setdefault(call, []).append(node["id"]) # This is a simplification, usually calls are from functions
 
+    def parse_python(self, path: Path, src: str) -> List[Dict]:
+        nodes = []
         try:
             tree = ast.parse(src)
         except SyntaxError:
-            return
-
+            return nodes
+        
         imports = collect_imports(tree)
         calls = collect_calls(tree)
-        node = {
-            "id": rp,
+        nodes.append({
+            "id": rel_path(path, Path(".")),
             "t": NODE_TYPE["file"],
             "n": path.name,
             "p": ".",
-            "l": [1, len(lines)],
+            "l": [1, len(src.splitlines())],
             "a": 0,
             "d": 1,
-            "ti": self.topo,
-            "sx": make_sx(
-                NODE_TYPE["file"], path.name, rp, "", 0, 1, len(lines), False, "MOD"
-            ),
+            "sx": make_sx(NODE_TYPE["file"], path.name, rel_path(path, Path(".")), "", 0, 1, len(src.splitlines()), False, "MOD"),
             "h": sha16(src),
             "tc": token_est(src),
             "ch": [],
             "im": imports,
             "cl": calls,
             "cb": [],
-        }
-        self.add_node(node)
-        self.add_edge(".", rp, EDGE_TYPE["contains"])
-        self.nodes[self.node_idx["."]]["ch"].append(rp)
-        self.topo += 1
-
+        })
+        
         module_name = path.stem
-        self.imp_idx[module_name] = rp
-
-        for item in tree.body:
-            if isinstance(item, ast.ClassDef):
-                self.process_class(item, rp, lines)
-            elif isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                self.process_function(item, rp, lines, parent=rp, owner=None)
-
-    def process_class(self, node: ast.ClassDef, rp: str, lines: List[str]):
-        nid = f"{rp}::{node.name}"
-        start = getattr(node, "lineno", None)
-        end = getattr(node, "end_lineno", start)
-        code = src_segment(lines, start, end)
-        sig = get_sig(node)
-        doc = bool(ast.get_docstring(node) or "")
-        sx = make_sx(
-            NODE_TYPE["class"], node.name, rp, sig, 0, start, end, doc, "CLS"
-        )
-
-        obj = {
-            "id": nid,
-            "t": NODE_TYPE["class"],
-            "n": node.name,
-            "p": rp,
-            "l": [start or 0, end or 0],
-            "a": 0,
-            "d": 2,
-            "ti": self.topo,
-            "sx": sx,
-            "h": sha16(code or node.name),
-            "tc": token_est(code),
-            "ch": [],
-            "im": [],
-            "cl": collect_calls(node),
-            "cb": [],
-        }
-        self.add_node(obj)
-        self.add_edge(rp, nid, EDGE_TYPE["contains"])
-        self.nodes[self.node_idx[rp]]["ch"].append(nid)
-        self.sym_idx.setdefault(node.name, []).append(nid)
-        self.topo += 1
-
-        for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                self.process_function(item, rp, lines, parent=nid, owner=node.name)
-
-    def process_function(self, node: ast.AST, rp: str, lines: List[str], parent: str, owner: Optional[str]):
-        base = node.name
-        full = f"{owner}.{base}" if owner else base
-        nid = f"{rp}::{full}"
-        start = getattr(node, "lineno", None)
-        end = getattr(node, "end_lineno", start)
-        code = src_segment(lines, start, end)
-        sig = get_sig(node)
-        argc = get_argc(node)
-        doc = bool(ast.get_docstring(node) or "")
-        t = NODE_TYPE["async_function"] if isinstance(node, ast.AsyncFunctionDef) else NODE_TYPE["function"]
-        
-        # 🔍 NEW: Extract decorators & optional route paths
-        decs = []
-        routes = []
-        for dec in getattr(node, "decorator_list", []):
-            if isinstance(dec, ast.Name):
-                decs.append(dec.id)
-            elif isinstance(dec, ast.Attribute):
-                decs.append(dec.attr)
-            elif isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
-                decs.append(dec.func.attr)
-                # Extract route if present: @app.route("/calc/add", methods=["GET"])
-                if dec.args and isinstance(dec.args[0], ast.Constant):
-                    routes.append(str(dec.args[0].value))
-        
-        sx = make_sx(t, full, rp, sig, argc, start, end, doc, op_code_from_tree(node))
-
-        obj = {
-            "id": nid,
-            "t": t,
-            "n": full,
-            "p": parent,
-            "l": [start or 0, end or 0],
-            "a": argc,
-            "d": 3 if owner else 2,
-            "ti": self.topo,
-            "sx": sx,
-            "h": sha16(code or full),
-            "tc": token_est(code),
-            "ch": [],
-            "im": [],
-            "cl": collect_calls(node),
-            "cb": [],
-            "dec": decs,          # 🔍 NEW
-            "routes": routes,     # 🔍 NEW
-        }
-        self.add_node(obj)
-        self.add_edge(parent, nid, EDGE_TYPE["contains"])
-        self.nodes[self.node_idx[parent]]["ch"].append(nid)
-        self.sym_idx.setdefault(base, []).append(nid)
-        self.topo += 1
-
+        # We'll handle imports in a separate pass in the builder if needed, 
+        # but for now we just return the file node.
+        return nodes
 
     def resolve_import_edges(self):
         for node in self.nodes:
@@ -424,11 +588,24 @@ class BinaryMemoryBuilder:
                     q.append(t)
                     seen.add(t)
 
+    def generate_embeddings(self):
+        print("[build_binary_memory] Generating embeddings...")
+        try:
+            from sentence_transformers import SentenceTransformer
+            model = SentenceTransformer('all-MiniLM-L6-v2')
+            for node in self.nodes:
+                nid = node["id"]
+                sx = node.get("sx", "")
+                content = sx # Use sx as content for embedding
+                vec = model.encode(content).tolist()
+                self.set_embedding(nid, vec)
+        except Exception as e:
+            print(f"[build_binary_memory] Warning: Could not generate embeddings: {e}")
+
     def export_binary(self):
         os.makedirs(os.path.dirname(INDEX_FILE), exist_ok=True)
         
         # 1. Write Content Blob
-        # We accumulate content in memory first, then write to file
         content_data = b""
         offsets = []
         
@@ -494,11 +671,11 @@ class BinaryMemoryBuilder:
                 f.write(struct.pack('<Q', offset))
                 f.write(struct.pack('<I', length))
 
-                # Write Embedding (NEW)
+                # Write Embedding (NEW) - float32
                 vec = self.embeddings.get(nid, [])
                 f.write(struct.pack('<I', len(vec))) # Vector Length
                 for val in vec:
-                    f.write(struct.pack('<d', val))   # Write as double
+                    f.write(struct.pack('<f', val))   # Write as float32
 
         print(f"[build_binary_memory] Saved {INDEX_FILE} and {CONTENT_FILE}")
         print(f"[build_binary_memory] nodes={len(self.nodes)} edges={len(self.edges)}")
