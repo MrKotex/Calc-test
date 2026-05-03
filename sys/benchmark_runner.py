@@ -1,92 +1,112 @@
+"""
+benchmark_runner.py
+~~~~~~~~~~~~~~~~~~~
+Runs the retrieval agent against benchmark_questions.json
+and reports Hit@1, Hit@3, Path Hit, and MRR.
+
+Usage:
+    python sys/benchmark_runner.py \\
+        --questions sys/benchmark_questions.json \\
+        --index     .context-tree/memory_index.bin \\
+        --content   .context-tree/memory_content.bin \\
+        --top       5
+"""
+from __future__ import annotations
+
+import argparse
 import json
-import time
 from pathlib import Path
-from scout_agent_binary import BinaryScoutAgent
+from typing import Dict, List
 
-QUESTIONS_FILE = "sys/benchmark_questions.json"
-OUT_FILE = ".context-tree/benchmark_results.json"
+from scout_agent_general import retrieve
 
-def hit_at_k(ranked_nodes, gold_nodes, k):
-    top = [x[0] for x in ranked_nodes[:k]]
-    return any(g in top for g in gold_nodes)
 
-def path_hit(path_taken, gold_nodes):
-    return any(g in path_taken for g in gold_nodes)
+def run(
+    questions_path: str,
+    index_path: str,
+    content_path: str,
+    top_k: int = 5,
+) -> Dict:
+    with open(questions_path, encoding="utf-8") as fh:
+        questions: List[Dict] = json.load(fh)
 
-def main():
-    # Initialize BinaryScoutAgent directly
-    agent = BinaryScoutAgent(
-        index_path=".context-tree/memory_index.bin",
-        content_path=".context-tree/memory_content.bin"
-    )
+    hit1 = hit3 = path_hit = mrr_sum = 0
+    misses: List[Dict] = []
 
-    with open(QUESTIONS_FILE, "r", encoding="utf-8") as f:
-        questions = json.load(f)
+    for q in questions:
+        query_text = q["q"]
+        gold_set   = set(q["gold"])
 
-    results = []
-    total_h1 = 0
-    total_h3 = 0
-    total_ph = 0
-    total_duration = 0.0
+        results    = retrieve(query_text, top_k=top_k,
+                              index_path=index_path, content_path=content_path)
+        top_ids    = [r["id"] for r in results]
 
-    for item in questions:
-        query = item["query"]
-        gold = item["gold_nodes"]
+        # Reciprocal rank
+        rr = 0.0
+        for rank, rid in enumerate(top_ids, start=1):
+            if rid in gold_set:
+                rr = 1.0 / rank
+                break
+        mrr_sum += rr
 
-        t0 = time.perf_counter()
-        
-        # Direct method calls instead of subprocess
-        ranked = agent.rank_nodes(query, top_k=5)
-        path = agent.navigate(query_text=query, start_node=".")
-        prompt = agent.build_ai_prompt(path, query, top_k_ranked=6)
-        
-        dt = time.perf_counter() - t0
+        # Hit@1
+        if top_ids and top_ids[0] in gold_set:
+            hit1 += 1
 
-        h1 = hit_at_k(ranked, gold, 1)
-        h3 = hit_at_k(ranked, gold, 3)
-        ph = path_hit(path, gold)
+        # Hit@3
+        if any(rid in gold_set for rid in top_ids[:3]):
+            hit3 += 1
 
-        total_h1 += int(h1)
-        total_h3 += int(h3)
-        total_ph += int(ph)
-        total_duration += dt
+        # Path Hit — gold node's file path somewhere in top results
+        gold_paths = {g.split("::")[0] for g in gold_set}
+        if any(r["id"].split("::")[0] in gold_paths for r in results):
+            path_hit += 1
 
-        results.append({
-            "id": item["id"],
-            "query": query,
-            "gold_nodes": gold,
-            "top_1": ranked[0][0] if ranked else None,
-            "ranked_nodes": [[nid, float(score)] for nid, score in ranked],
-            "path_taken": path,
-            "hit@1": h1,
-            "hit@3": h3,
-            "path_hit": ph,
-            "prompt_char_count": len(prompt),
-            "duration_sec": dt,
-        })
+        if not (top_ids and top_ids[0] in gold_set):
+            misses.append({
+                "id":   q["id"],
+                "q":    query_text,
+                "gold": list(gold_set),
+                "top1": top_ids[0] if top_ids else "(no results)",
+            })
 
-    summary = {
-        "total_queries": len(questions),
-        "hit@1_rate": total_h1 / len(questions) if questions else 0.0,
-        "hit@3_rate": total_h3 / len(questions) if questions else 0.0,
-        "path_hit_rate": total_ph / len(questions) if questions else 0.0,
-        "avg_duration_sec": total_duration / len(questions) if questions else 0.0,
-        "results": results,
+    total = len(questions)
+
+    print("\n" + "=" * 50)
+    print(f"  Results  ({total} queries)")
+    print("=" * 50)
+    print(f"  Hit@1:    {hit1 / total:.2%}")
+    print(f"  Hit@3:    {hit3 / total:.2%}")
+    print(f"  Path Hit: {path_hit / total:.2%}")
+    print(f"  MRR:      {mrr_sum / total:.4f}")
+
+    if misses:
+        print(f"\n  Misses ({len(misses)}):")
+        for m in misses:
+            print(f"    [{m['id']}] {m['q']!r}")
+            print(f"         gold:  {m['gold']}")
+            print(f"         top1:  {m['top1']}")
+
+    return {
+        "hit_at_1":  hit1 / total,
+        "hit_at_3":  hit3 / total,
+        "path_hit":  path_hit / total,
+        "mrr":       mrr_sum / total,
+        "misses":    misses,
     }
-
-    Path(OUT_FILE).parent.mkdir(parents=True, exist_ok=True)
-    with open(OUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(summary, f, indent=2, ensure_ascii=False)
-
-    print(json.dumps({
-        "total_queries": summary["total_queries"],
-        "hit@1_rate": summary["hit@1_rate"],
-        "hit@3_rate": summary["hit@3_rate"],
-        "path_hit_rate": summary["path_hit_rate"],
-        "avg_duration_sec": summary["avg_duration_sec"],
-        "out_file": OUT_FILE,
-    }, indent=2))
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--questions", default="sys/benchmark_questions.json")
+    ap.add_argument("--index",     default=".context-tree/memory_index.bin")
+    ap.add_argument("--content",   default=".context-tree/memory_content.bin")
+    ap.add_argument("--top",       type=int, default=5)
+    args = ap.parse_args()
+
+    run(
+        questions_path=args.questions,
+        index_path=args.index,
+        content_path=args.content,
+        top_k=args.top,
+    )
