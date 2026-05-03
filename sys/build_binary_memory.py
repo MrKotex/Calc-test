@@ -630,9 +630,6 @@ class BinaryMemoryBuilder:
             for i, node in enumerate(self.nodes):
                 nid = node["id"]
                 pid = node.get("p", "")
-                imports = node.get("im", [])
-                calls = node.get("cl", [])
-                called_by = node.get("cb", [])
                 
                 # Write ID
                 nid_bytes = nid.encode('utf-8')
@@ -647,26 +644,39 @@ class BinaryMemoryBuilder:
                 # Write Type
                 f.write(struct.pack('<B', node["t"]))
                 
-                # Write Imports
-                f.write(struct.pack('<I', len(imports)))
-                for imp in imports:
-                    imp_bytes = imp.encode('utf-8')
-                    f.write(struct.pack('<I', len(imp_bytes)))
-                    f.write(imp_bytes)
+                # --- REFACORED: Generic Edge Array ---
+                # Group edges by source node
+                # We need to collect all edges where source == node["id"]
+                # Note: 'contains' edges are stored in node["ch"]
+                # 'calls' are stored in node["cl"]
+                # 'imports' are stored in node["im"]
+                # 'feeds' and 'references' are added via self.edges but may not be in node dict
                 
-                # Write Calls
-                f.write(struct.pack('<I', len(calls)))
-                for call in calls:
-                    call_bytes = call.encode('utf-8')
-                    f.write(struct.pack('<I', len(call_bytes)))
-                    f.write(call_bytes)
+                # Build a map of source -> edges
+                node_edges = {}
+                for s, t, e in self.edges:
+                    if s == nid:
+                        node_edges.setdefault(t, []).append(t) # target_id is same as string representation
                 
-                # Write Called By
-                f.write(struct.pack('<I', len(called_by)))
-                for cb in called_by:
-                    cb_bytes = cb.encode('utf-8')
-                    f.write(struct.pack('<I', len(cb_bytes)))
-                    f.write(cb_bytes)
+                # Add 'contains' edges (stored in node["ch"])
+                # Note: node["ch"] contains child IDs, edge type is 1 ("contains")
+                for child_id in node.get("ch", []):
+                    node_edges.setdefault(1, []).append(child_id)
+
+                # Write edges_count
+                total_edges = sum(len(v) for v in node_edges.values())
+                f.write(struct.pack('<I', total_edges))
+                
+                # Write edges
+                for edge_type, targets in node_edges.items():
+                    for target_id in targets:
+                        # Write edge_type (1 byte)
+                        f.write(struct.pack('<B', edge_type))
+                        # Write target_id string
+                        target_bytes = target_id.encode('utf-8')
+                        f.write(struct.pack('<I', len(target_bytes)))
+                        f.write(target_bytes)
+                # --------------------------------------
                 
                 # Write Offset & Length
                 offset = offsets[i][0]

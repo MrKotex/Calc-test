@@ -89,15 +89,24 @@ def load_index(index_path: str) -> Tuple[List[Dict], Dict[str, Dict]]:
             nid      = read_string(f)
             parent   = read_string(f)
             ntype    = struct.unpack('<B', f.read(1))[0]
-            imports  = read_string_list(f)
-            calls    = read_string_list(f)
-            called_by = read_string_list(f)
+            
+            # ── REFACORED: Generic Edge Array ──
+            edges_count = struct.unpack('<I', f.read(4))[0]
+            raw_edges = []
+            for _ in range(edges_count):
+                edge_type = struct.unpack('<B', f.read(1))[0]
+                target_len = struct.unpack('<I', f.read(4))[0]
+                target_id = f.read(target_len).decode('utf-8')
+                raw_edges.append({"type": edge_type, "target": target_id})
+            # ───────────────────────────────────
+
             offset   = struct.unpack('<Q', f.read(8))[0]
             length   = struct.unpack('<I', f.read(4))[0]
 
             vec_len  = struct.unpack('<I', f.read(4))[0]
             vector   = []
             if vec_len > 0:
+                # FIX: Use <f (float32) instead of <d (float64) to match builder
                 vector = [struct.unpack('<f', f.read(4))[0] for _ in range(vec_len)]
 
             node = {
@@ -105,9 +114,7 @@ def load_index(index_path: str) -> Tuple[List[Dict], Dict[str, Dict]]:
                 "parent": parent,
                 "type": ntype,
                 "label": NODE_LABELS.get(ntype, f"Type{ntype}"),
-                "imports": imports,
-                "calls": calls,
-                "called_by": called_by,
+                "raw_edges": raw_edges, # Attach raw edges for simplified build_edges
                 "offset": offset,
                 "length": length,
                 "has_embedding": len(vector) > 0,
@@ -140,7 +147,7 @@ def build_edges(nodes: List[Dict], node_map: Dict) -> List[Dict]:
         nid = node["id"]
         parent = node["parent"]
 
-        # contains edge
+        # contains edge (from parent)
         if parent and parent in node_map:
             edges.append({
                 "id": f"e{edge_id}", "source": parent, "target": nid,
@@ -148,27 +155,16 @@ def build_edges(nodes: List[Dict], node_map: Dict) -> List[Dict]:
             })
             edge_id += 1
 
-        # calls edges
-        for callee in node["calls"]:
-            if callee in node_map:
-                edges.append({
-                    "id": f"e{edge_id}", "source": nid, "target": callee,
-                    "type": "CALLS", "type_code": 2
-                })
-                edge_id += 1
-
-        # imports edges
-        for imp in node["imports"]:
-            # try to resolve to a node id
-            target = None
-            for candidate in node_map:
-                if candidate.endswith(f"/{imp}.py") or candidate.endswith(f"/{imp}"):
-                    target = candidate
-                    break
-            if target:
+        # REFACORED: Iterate over raw generic edges
+        for edge in node.get("raw_edges", []):
+            target = edge["target"]
+            etype_code = edge["type"]
+            
+            if target in node_map:
                 edges.append({
                     "id": f"e{edge_id}", "source": nid, "target": target,
-                    "type": "IMPORTS", "type_code": 3
+                    "type": EDGE_LABELS.get(etype_code, f"TYPE{etype_code}"),
+                    "type_code": etype_code
                 })
                 edge_id += 1
 
