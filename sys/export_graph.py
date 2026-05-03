@@ -98,7 +98,7 @@ def load_index(index_path: str) -> Tuple[List[Dict], Dict[str, Dict]]:
             vec_len  = struct.unpack('<I', f.read(4))[0]
             vector   = []
             if vec_len > 0:
-                vector = [struct.unpack('<d', f.read(8))[0] for _ in range(vec_len)]
+                vector = [struct.unpack('<f', f.read(4))[0] for _ in range(vec_len)]
 
             node = {
                 "id": nid,
