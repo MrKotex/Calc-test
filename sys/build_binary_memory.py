@@ -560,14 +560,17 @@ class BinaryMemoryBuilder:
         seen: Set[Tuple[str, str, int]] = set()
         for node in self.nodes:
             src_id = node["id"]
+            resolved_calls = [] # Create a new list for actual IDs
             for call in node.get("cl", []):
                 for target in self.sym_idx.get(call, []):
                     if src_id == target:
                         continue
+                    resolved_calls.append(target) # Store the Node ID
                     trip = (src_id, target, EDGE_TYPE["calls"])
                     if trip not in seen:
                         self.edges.append([src_id, target, EDGE_TYPE["calls"]])
                         seen.add(trip)
+            node["cl"] = list(set(resolved_calls)) # Replace strings with IDs
 
     def compute_called_by(self):
         for n in self.nodes:
