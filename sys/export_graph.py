@@ -57,12 +57,12 @@ NODE_COLORS = {
     2: "#d97706",   # Class      — amber
     3: "#16a34a",   # Function   — green
     4: "#0d9488",   # AsyncFn    — teal
-    5: "#dc2626",   # Table      — red
-    6: "#7c3aed",   # Column     — purple
-    7: "#db2777",   # View       — pink
-    8: "#0891b2",   # Schema     — cyan
+    5: "#F59E0B",   # Table      — amber (updated)
+    6: "#FCD34D",   # Column     — light yellow (updated)
+    7: "#93C5FD",   # View       — light blue (updated)
+    8: "#6EE7B7",   # Schema     — mint (updated)
     9: "#65a30d",   # Database   — lime
-    10: "#ea580c",  # ETLJob     — orange
+    10: "#C4B5FD",  # ETLJob     — lavender (updated)
 }
 
 

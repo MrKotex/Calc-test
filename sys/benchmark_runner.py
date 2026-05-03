@@ -51,6 +51,7 @@ def main():
         total_ph += int(ph)
         total_duration += dt
 
+        # Add backwards compatibility for the output format
         results.append({
             "id": item["id"],
             "query": query,
@@ -63,6 +64,8 @@ def main():
             "path_hit": ph,
             "prompt_char_count": len(prompt),
             "duration_sec": dt,
+            # Backwards compatibility
+            "top_nodes": [[nid, float(score)] for nid, score in ranked],
         })
 
     summary = {

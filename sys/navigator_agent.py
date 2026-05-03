@@ -11,7 +11,7 @@ sys.path.append(str(Path(__file__).parent))
 from scout_agent_binary import BinaryScoutAgent, NODE_TYPE, EDGE_TYPE
 
 class NavigatorAgent:
-    def __init__(self, index_path: str, content_path: str, llm_endpoint: str = "http://localhost:11434/api/generate", llm_model: str = "qwen3.5-08b"):
+    def __init__(self, index_path: str, content_path: str, llm_endpoint: str = "http://localhost:1234/v1/chat/completions", llm_model: str = "qwen3.5-0.8b"):
         """
         Initialize the Navigator Agent.
         
@@ -105,21 +105,24 @@ Return a JSON object:
 
     def invoke_llm(self, query: str) -> Dict:
         """Invoke the LLM to get the navigation plan."""
+        # Construct the prompt for the chat API
+        user_content = f"User Query: {query}\n\nNavigator Agent State:\n- Total Nodes: {len(self.memory.nodes)}\n\nPlease execute your plan:"
+        
         payload = {
             "model": self.llm_model,
-            "prompt": f"User Query: {query}\n\nSystem Prompt:\n{self.system_prompt}\n\nNavigator Agent State:\n- Total Nodes: {len(self.memory.nodes)}\n- Total Edges: {len(self.memory.edges)}\n\nPlease execute your plan:",
-            "stream": False,
-            "options": {
-                "temperature": 0.2,
-                "num_predict": 2048
-            }
+            "messages": [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            "temperature": 0.2,
+            "max_tokens": 2048
         }
 
         try:
             response = requests.post(self.llm_endpoint, json=payload)
             response.raise_for_status()
             data = response.json()
-            content = data.get("response", "")
+            content = data["choices"][0]["message"]["content"]
             
             # Extract JSON from the response (handling potential markdown code blocks)
             if "```json" in content:
@@ -163,6 +166,8 @@ Return a JSON object:
         for nid, score in ranked:
             node = self.memory.node_map.get(nid)
             if node:
+                # Normalize caller_count/reference_count for SQL nodes
+                node["caller_count"] = node.get("caller_count") or node.get("reference_count", 0)
                 result.append({
                     "id": nid,
                     "type": node.get("type"),
@@ -196,6 +201,15 @@ Return a JSON object:
         """Store cached summary."""
         self.capsules[(node_id, task_type)] = summary
 
+    def _column_lineage(self, table_name: str, column_name: str, direction: str = "both") -> List[Dict]:
+        """
+        Find lineage for a specific column in a table.
+        Walk REFERENCES and FEEDS edges in both directions.
+        """
+        # This is a placeholder implementation - in a real system this would
+        # traverse the actual graph structure to find column lineage
+        return []
+
     def navigate(self, query: str) -> Dict:
         """Main navigation logic using the LLM."""
         # 1. Ask LLM to plan
@@ -213,6 +227,14 @@ Return a JSON object:
         # For this implementation, we trust the LLM's `context_for_big_llm` if it provided it.
         # If not, we generate it deterministically.
         
+        # Handle specific query types that we know about
+        if "tool_calls_executed" in llm_result:
+            for call in llm_result["tool_calls_executed"]:
+                tool = call.get("tool", "")
+                if tool == "column_lineage":
+                    # This would be implemented in a real version
+                    pass
+        
         if "context_for_big_llm" in llm_result:
             return llm_result
         
@@ -221,11 +243,11 @@ Return a JSON object:
 
 # Usage
 if __name__ == "__main__":
-    # Example: Assuming Ollama is running on localhost:11434 with qwen3.5-08b pulled
+    # Example: Assuming LM Studio is running on localhost:1234
     # agent = NavigatorAgent(
     #     index_path=".context-tree/memory_index.bin",
     #     content_path=".context-tree/memory_content.bin",
-    #     llm_endpoint="http://localhost:11434/api/generate",
+    #     llm_endpoint="http://localhost:1234/v1/chat/completions",
     #     llm_model="qwen3.5-08b"
     # )
     

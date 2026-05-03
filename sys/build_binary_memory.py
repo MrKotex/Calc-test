@@ -624,8 +624,8 @@ class BinaryMemoryBuilder:
 
         # 2. Write Index
         with open(INDEX_FILE, "wb") as f:
-            # Header: Magic (4), Version (4), Count (4)
-            f.write(struct.pack('<III', MAGIC_NUMBER, 1, len(self.nodes)))
+        # Header: Magic (4), Version (4), Count (4)
+            f.write(struct.pack('<III', MAGIC_NUMBER, 2, len(self.nodes)))
             
             for i, node in enumerate(self.nodes):
                 nid = node["id"]
@@ -644,6 +644,45 @@ class BinaryMemoryBuilder:
                 # Write Type
                 f.write(struct.pack('<B', node["t"]))
                 
+                # Handle SQL node types by writing their specific fields
+                if node["t"] in (NODE_TYPE["table"], NODE_TYPE["view"], NODE_TYPE["schema"]):
+                    # Write database name
+                    db_name = node.get("db", "")
+                    db_bytes = db_name.encode('utf-8')
+                    f.write(struct.pack('<I', len(db_bytes)))
+                    f.write(db_bytes)
+                    
+                    # Write columns list
+                    columns = node.get("columns", [])
+                    f.write(struct.pack('<I', len(columns)))
+                    for col in columns:
+                        col_bytes = col.encode('utf-8')
+                        f.write(struct.pack('<I', len(col_bytes)))
+                        f.write(col_bytes)
+                    
+                    # Write snippet
+                    snippet = node.get("snippet", "")
+                    snippet_bytes = snippet.encode('utf-8')
+                    f.write(struct.pack('<I', len(snippet_bytes)))
+                    f.write(snippet_bytes)
+                    
+                elif node["t"] == NODE_TYPE["column"]:
+                    # Write table name
+                    table_name = node.get("table", "")
+                    table_bytes = table_name.encode('utf-8')
+                    f.write(struct.pack('<I', len(table_bytes)))
+                    f.write(table_bytes)
+                    
+                    # Write data type
+                    dtype = node.get("dtype", "")
+                    dtype_bytes = dtype.encode('utf-8')
+                    f.write(struct.pack('<I', len(dtype_bytes)))
+                    f.write(dtype_bytes)
+                    
+                    # Write nullable flag
+                    nullable = node.get("nullable", False)
+                    f.write(struct.pack('?', nullable))
+                
                 # --- REFACORED: Generic Edge Array ---
                 # Group edges by source node
                 # We need to collect all edges where source == node["id"]
@@ -656,12 +695,13 @@ class BinaryMemoryBuilder:
                 node_edges = {}
                 for s, t, e in self.edges:
                     if s == nid:
-                        node_edges.setdefault(t, []).append(t) # target_id is same as string representation
+                        # Store edge type as integer (not string) 
+                        node_edges.setdefault(e, []).append(t)
                 
                 # Add 'contains' edges (stored in node["ch"])
                 # Note: node["ch"] contains child IDs, edge type is 1 ("contains")
                 for child_id in node.get("ch", []):
-                    node_edges.setdefault(1, []).append(child_id)
+                    node_edges.setdefault(EDGE_TYPE["contains"], []).append(child_id)
 
                 # Write edges_count
                 total_edges = sum(len(v) for v in node_edges.values())
