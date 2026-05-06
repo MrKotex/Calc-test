@@ -30,6 +30,10 @@ symbol_lookup { identifier: str }
        depth_penalty: exp(-depth * 0.1)   (deeper nodes score slightly lower)
        caller_boost:  min(1.5, 1 + len(called_by)*0.15)
        FINAL = name_score × context_score × type_score × depth_penalty × caller_boost
+       
+       Note: For SQL node types (table, column, view), the field "reference_count" is used instead of 
+       "caller_count", but the Navigator agent normalizes this to a unified "caller_count" field for 
+       consistent scoring.
   3. Return top-10 by FINAL score, with all fields.
   4. Filter out meta-files: test_*, *_test.py, benchmark*, build_graph*, scout_agent*, __init__
 

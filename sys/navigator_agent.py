@@ -253,5 +253,5 @@ if __name__ == "__main__":
     
     # For testing without LLM, use fallback:
     agent = NavigatorAgent(".context-tree/memory_index.bin", ".context-tree/memory_content.bin")
-    result = agent.navigate("Where is add defined?")
+    result = agent.navigate("What are two related structures in the memory?")
     print(json.dumps(result, indent=2))

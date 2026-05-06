@@ -29,6 +29,8 @@ NODE_TYPE = {
     "database": 9,
 }
 
+MAGIC_NUMBER = 0x42494E4D  # "BINM"
+
 SYNONYMS = {
     "division": "divide", "subtract": "minus", "multiply": "times", 
     "add": "plus", "endpoint": "route", "path": "route", "handler": "function"
@@ -138,7 +140,15 @@ class BinaryScoutAgent:
     def _load_index(self):
         """Load index into RAM and build adjacency lists."""
         with open(self.index_path, 'rb') as f:
-            magic, version, count = struct.unpack('<III', f.read(12))
+            magic = struct.unpack('<I', f.read(4))[0]
+            if magic != MAGIC_NUMBER:
+                raise ValueError(f"Invalid magic number: {hex(magic)} — not a valid memory_index.bin")
+            
+            version = struct.unpack('<I', f.read(4))[0]
+            if version < 2:
+                raise RuntimeError("Binary memory file is v1 (pre-SQL). Re-run build_binary_memory.py.")
+            
+            count = struct.unpack('<I', f.read(4))[0]
             
             self.nodes = [None] * count
             self.node_map = {}
@@ -210,6 +220,37 @@ class BinaryScoutAgent:
                     "imports": imports, "calls": calls, "called_by": called_by,
                     "feeds": feeds, "references": references
                 }
+                
+                # Handle SQL node types by reading their specific fields
+                if ntype in (NODE_TYPE["table"], NODE_TYPE["view"], NODE_TYPE["schema"]):
+                    # Read database name
+                    db_len = struct.unpack('<I', f.read(4))[0]
+                    node_data["db"] = f.read(db_len).decode('utf-8')
+                    
+                    # Read columns list
+                    columns_count = struct.unpack('<I', f.read(4))[0]
+                    columns = []
+                    for _ in range(columns_count):
+                        col_len = struct.unpack('<I', f.read(4))[0]
+                        column_name = f.read(col_len).decode('utf-8')
+                        columns.append(column_name)
+                    node_data["columns"] = columns
+                    
+                    # Read snippet
+                    snippet_len = struct.unpack('<I', f.read(4))[0]
+                    node_data["snippet"] = f.read(snippet_len).decode('utf-8')
+                    
+                elif ntype == NODE_TYPE["column"]:
+                    # Read table name
+                    table_len = struct.unpack('<I', f.read(4))[0]
+                    node_data["table"] = f.read(table_len).decode('utf-8')
+                    
+                    # Read data type
+                    dtype_len = struct.unpack('<I', f.read(4))[0]
+                    node_data["dtype"] = f.read(dtype_len).decode('utf-8')
+                    
+                    # Read nullable flag
+                    node_data["nullable"] = struct.unpack("?", f.read(1))[0]
                 
                 self.nodes[i] = node_data
                 self.node_map[nid] = node_data
