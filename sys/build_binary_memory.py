@@ -624,7 +624,7 @@ class BinaryMemoryBuilder:
         self.resolve_call_edges()
         self.compute_called_by()
         self.compute_depths()
-        self.generate_embeddings()
+        #self.generate_embeddings()
 
     def process_file(self, path: Path):
         rp = rel_path(path, self.root)

@@ -1,0 +1,210 @@
+<HTML>
+  <HEAD>
+    <META http-equiv="Content-Type" content="text/html; charset=windows-1250">
+    <META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1250">
+    <META NAME="Author" CONTENT="Comarch S.A.">
+    <LINK rel="stylesheet" type="text/css" href="Style/doc.css">
+    <TITLE>Skrypt SQL</TITLE>
+  </HEAD>
+  <BODY>
+  <DIV CLASS="TextInfo">
+      <P><A name="Usuwanie procedury [PROCEDURE_NAME]"></A><PRE>
+          <FONT SIZE="2" DISABLED="True"><I>/* Usuwanie procedury [PROCEDURE_NAME] */</I><BR>
+IF EXISTS (
+		SELECT *
+		FROM sysobjects
+		WHERE NAME = '[PROCEDURE_NAME]'
+			AND TYPE = 'P'
+		)
+	DROP PROCEDURE [DATABASE].[PROCEDURE_NAME];
+</FONT>
+        </PRE>
+      </P>
+      <HR>
+    </DIV>
+  <DIV CLASS="TextInfo">
+      <P><A name="Tworzenie procedury [PROCEDURE_NAME]"></A><PRE>
+          <FONT SIZE="2"><I>/* Tworzenie procedury [PROCEDURE_NAME] */</I><BR>
+CREATE PROCEDURE [DATABASE].[PROCEDURE_NAME] @KodTowaru VARCHAR(40)
+	,@NazwaCennika VARCHAR(100) = NULL
+AS
+BEGIN
+	DECLARE @TwrNumer INT;
+	DECLARE @TwrNazwa VARCHAR(255);
+	DECLARE @RodzajCeny SMALLINT;
+	DECLARE @TypCeny VARCHAR(1);
+	DECLARE @TypWyliczaniaMarzy VARCHAR(1);
+	DECLARE @WalutaSys VARCHAR(3);
+	DECLARE @DomyslnyNumerKursu SMALLINT;
+	DECLARE @Zaokraglenie SMALLINT;
+
+	IF NOT EXISTS (
+			SELECT 1
+			FROM [DATABASE].[TABLE_PRODUCTS]
+			WHERE [CODE] = @KodTowaru
+			)
+	BEGIN
+		SELECT '' KodTwr
+			,'' NazwaTwr
+			,'' NazwaCennika
+			,'' CenaNetto
+			,'' CenaBrutto
+			,'' MarzaRzeczywista
+			,'' RoznicaMarzaRzeczywistaIZakladana
+			,'Podany towar nie istnieje w bazie danych.' Uwaga
+
+		RETURN;
+	END
+
+	IF @NazwaCennika IS NOT NULL
+		AND NOT EXISTS (
+			SELECT 1
+			FROM [DATABASE].[TABLE_PRICES_HEADER]
+			WHERE UPPER(LTRIM(RTRIM([NAME]))) = UPPER(LTRIM(RTRIM(@NazwaCennika)))
+			)
+	BEGIN
+		SELECT '' KodTwr
+			,'' NazwaTwr
+			,'' NazwaCennika
+			,'' CenaNetto
+			,'' CenaBrutto
+			,'' MarzaRzeczywista
+			,'' RoznicaMarzaRzeczywistaIZakladana
+			,'Nie znaleziono cennika o takiej nazwie.' Uwaga
+
+		RETURN;
+	END
+
+	IF @NazwaCennika IS NOT NULL
+		AND NOT EXISTS (
+			SELECT 1
+			FROM [DATABASE].[TABLE_PRICES_HEADER]
+			JOIN [DATABASE].[TABLE_PRICES] ON [ID] = [FOREIGN_KEY_ID] AND UPPER(LTRIM(RTRIM([NAME]))) = UPPER(LTRIM(RTRIM(@NazwaCennika)))
+			JOIN [DATABASE].[TABLE_PRODUCTS] ON [ID] = [PRODUCT_ID] AND [CODE] = @KodTowaru
+			)
+	BEGIN
+		SELECT '' KodTwr
+			,'' NazwaTwr
+			,'' NazwaCennika
+			,'' CenaNetto
+			,'' CenaBrutto
+			,'' MarzaRzeczywista
+			,'' RoznicaMarzaRzeczywistaIZakladana
+			,'Podany cennik nie jest przypisany do danego towaru.' Uwaga
+
+		RETURN;
+	END
+
+	SELECT TOP 1 
+		@TwrNumer = [ID]
+		,@TwrNazwa = [PRODUCT_NAME]
+		,@NazwaCennika = [NAME]
+		,@RodzajCeny = TCN_RodzajCeny
+		,@TypCeny = (SELECT SUBSTRING(Naz_Nazwa, 11, 1) FROM [DATABASE].[TABLE_NAMES] WHERE [TYPE_ID] = 64 AND [LINE_NUMBER] = TCN_RodzajCeny)
+		,@Zaokraglenie = (
+			SELECT CASE 
+					WHEN [ROUNDING] = 0.1
+						THEN 1
+					WHEN [ROUNDING] = 0.01
+						THEN 2
+					WHEN [ROUNDING] = 0.001
+						THEN 3
+					ELSE 4
+					END
+			)
+		,@DomyslnyNumerKursu = (SELECT CONVERT(INT, [CONFIG_VALUE]) FROM [DATABASE].[TABLE_CONFIG] WHERE Kon_Numer = 11)
+		,@TypWyliczaniaMarzy = (SELECT Kon_Wartosc FROM [DATABASE].[TABLE_CONFIG] WHERE Kon_Numer = 12)
+		,@WalutaSys = (select Kon_Wartosc from [DATABASE].[TABLE_CONFIG] where Kon_Numer = 211)
+	FROM [DATABASE].[TABLE_PRODUCTS]
+	JOIN [DATABASE].[TABLE_PRICES] ON [ID] = [PRODUCT_ID]
+	LEFT JOIN [DATABASE].[TABLE_PRICES_HEADER] ON [ID] = [FOREIGN_KEY_ID]
+	WHERE [CODE] = @KodTowaru
+		AND (
+			(
+				@NazwaCennika IS NOT NULL
+				AND UPPER(LTRIM(RTRIM([NAME]))) = UPPER(LTRIM(RTRIM(@NazwaCennika)))
+				)
+			OR (
+				@NazwaCennika IS NULL
+				AND [PRICE_TYPE] = Twr_CenaSpr
+				)
+			)
+		AND TwC_DataOd <= DATEDIFF(S, '19900101', GETDATE())
+
+	;WITH cte
+	AS (
+		SELECT (
+				CASE 
+					WHEN @TypCeny = 'N'
+						THEN [AMOUNT]
+					ELSE ROUND([AMOUNT] / (1 + ([RATE] / 100)), @Zaokraglenie) + [OFFSET]
+					END
+				) CenaNetto
+			,(
+				CASE 
+					WHEN @TypCeny = 'B'
+						THEN [AMOUNT]
+					ELSE ROUND([AMOUNT] * (1 + ([RATE] / 100)), @Zaokraglenie) + [OFFSET]
+					END
+				) CenaBrutto
+			,(
+				SELECT Wartosc
+				FROM [DATABASE].[FUNCTION_MARGIN_BASE]([PRODUCT_ID], TwC_RodzajPodstawy, TwC_KntNumer, TwC_KntTyp, @WalutaSys, DATEDIFF(d, '18001228', GETDATE()))
+				) WartoscPodstawy
+			,(
+				SELECT Waluta
+				FROM [DATABASE].[FUNCTION_MARGIN_BASE]([PRODUCT_ID], TwC_RodzajPodstawy, TwC_KntNumer, TwC_KntTyp, @WalutaSys, DATEDIFF(d, '18001228', GETDATE()))
+				) WalutaPodstawy
+			,*
+		FROM [DATABASE].[TABLE_PRODUCTS]
+		JOIN [FUNCTION_GET_PRICE](@TwrNumer, @RodzajCeny, DATEDIFF(S, '19900101', GETDATE())) ON [ID] = [PRODUCT_ID]
+		)
+		,cte2
+	AS (
+		SELECT cdn.WartoscWWalucieSys(CenaNetto, TwC_Waluta, @DomyslnyNumerKursu, DATEDIFF(S, '19900101', GETDATE())) CenaSys
+			,cdn.WartoscWWalucieSys(WartoscPodstawy, WalutaPodstawy, @DomyslnyNumerKursu, DATEDIFF(S, '19900101', GETDATE())) PodstawaSys
+		FROM cte
+		)
+		,cte3
+	AS (
+		SELECT ROUND(
+				CASE 
+					WHEN CenaSys = 0
+						THEN 0
+					WHEN @TypWyliczaniaMarzy = 1
+						THEN ((CenaSys - PodstawaSys) / CenaSys) * 100
+					WHEN @TypWyliczaniaMarzy = 2
+						THEN ((CenaSys - PodstawaSys) / PodstawaSys) * 100
+					END
+				, 2) MarzaRzeczywista
+		FROM cte, cte2
+		)
+	SELECT @KodTowaru KodTwr
+		,@TwrNazwa NazwaTwr
+		,@NazwaCennika NazwaCennika
+		,CONVERT(VARCHAR, CAST(CenaNetto AS DECIMAL(21,4))) + ' ' + TwC_Waluta CenaNetto
+		,CONVERT(VARCHAR, CAST(CenaBrutto AS DECIMAL(21,4))) + ' ' + TwC_Waluta CenaBrutto
+		,CAST(MarzaRzeczywista AS DECIMAL(21,2)) MarzaRzeczywista
+		,CAST(MarzaRzeczywista - TwC_Marza AS DECIMAL(21,2)) RoznicaMarzaRzeczywistaIZakladana
+		,'' Uwaga
+	FROM cte, cte2, cte3
+	
+END
+</FONT>
+        </PRE>
+      </P>
+      <HR>
+    </DIV>
+  <DIV CLASS="TextInfo">
+      <P><A name="Przyznanie praw do funkcji [PROCEDURE_NAME]"></A><PRE>
+          <FONT SIZE="2"><I>/* Przyznanie praw do procedury [PROCEDURE_NAME] */</I><BR>
+GRANT EXECUTE
+	ON [DATABASE].[PROCEDURE_NAME]
+	TO [ROLE_NAME]
+</FONT>
+        </PRE>
+      </P>
+      <HR>
+    </DIV>
+</BODY>
+</HTML>
