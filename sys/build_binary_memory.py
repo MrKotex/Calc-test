@@ -656,7 +656,7 @@ class BinaryMemoryBuilder:
         self.resolve_call_edges()
         self.compute_called_by()
         self.compute_depths()
-        #self.generate_embeddings()
+        self.generate_embeddings()
 
     def process_file(self, path: Path):
         rp = rel_path(path, self.root)
@@ -757,28 +757,14 @@ class BinaryMemoryBuilder:
                     seen.add(t)
 
     def generate_embeddings(self):
-        print("[build_binary_memory] Generating embeddings with Qwen3.5-0.8B...")
+        print("[build_binary_memory] Generating embeddings with sentence-transformers...")
         try:
-            from transformers import AutoTokenizer, AutoModel
-            import torch
-            
-            # 1. Configuration
-            MODEL_NAME = "Qwen/Qwen3.5-0.8B"
-            
-            # Automatically detects GPU if available, otherwise uses CPU
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            print(f"[build_binary_memory] Loading {MODEL_NAME} on {device}...")
-            
-            # Load model and tokenizer (trust_remote_code is required for Qwen)
-            tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
-            model = AutoModel.from_pretrained(
-                MODEL_NAME, 
-                device_map=device, 
-                torch_dtype=torch.float16 if device == "cuda" else torch.float32
-            )
-            model.eval()
+            from sentence_transformers import SentenceTransformer
 
-            # 2. Collect texts from nodes
+            MODEL_NAME = "all-MiniLM-L6-v2"
+            model = SentenceTransformer(MODEL_NAME)
+            print(f"[build_binary_memory] Loaded {MODEL_NAME}")
+
             texts = []
             node_ids = []
             for node in self.nodes:
@@ -791,47 +777,26 @@ class BinaryMemoryBuilder:
                 print("[build_binary_memory] No content to embed.")
                 return
 
-            # 3. Batch Processing (Crucial for speed and memory)
-            batch_size = 16 
+            batch_size = 64
             print(f"[build_binary_memory] Encoding {len(texts)} nodes in batches of {batch_size}...")
 
-            all_embeddings = []
-            
+            all_vecs = []
             for i in range(0, len(texts), batch_size):
                 batch_texts = texts[i:i + batch_size]
-                
-                # Tokenize inputs
-                inputs = tokenizer(
-                    batch_texts, 
-                    return_tensors="pt", 
-                    padding=True, 
-                    truncation=True, 
-                    max_length=512
-                ).to(device)
+                batch_vecs = model.encode(
+                    batch_texts,
+                    batch_size=len(batch_texts),
+                    show_progress_bar=False,
+                    convert_to_numpy=True,
+                )
+                all_vecs.extend(batch_vecs.tolist())
 
-                # Inference
-                with torch.no_grad():
-                    outputs = model(**inputs)
-                    
-                    # Mean Pooling for Sentence Embeddings:
-                    # 1. Get last hidden states (token embeddings)
-                    token_embeddings = outputs.last_hidden_state
-                    
-                    # 2. Apply attention mask to ignore padding tokens
-                    input_mask_expanded = inputs['attention_mask'].unsqueeze(-1).expand(token_embeddings.size()).float()
-                    
-                    # 3. Sum and divide by length to get mean vector
-                    embeddings = (token_embeddings * input_mask_expanded).sum(1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-                
-                all_embeddings.append(embeddings.cpu())
+            if len(all_vecs) != len(node_ids):
+                print(f"[build_binary_memory] Warning: embeddings count {len(all_vecs)} != nodes {len(node_ids)}")
 
-            # 4. Store results back into the builder
-            idx = 0
-            for nid in node_ids:
-                vec = all_embeddings[idx].tolist()
+            for nid, vec in zip(node_ids, all_vecs):
                 self.set_embedding(nid, vec)
-                idx += 1
-            
+
             print("[build_binary_memory] Embeddings generated successfully.")
 
         except Exception as e:
