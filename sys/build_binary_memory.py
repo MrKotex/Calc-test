@@ -339,6 +339,38 @@ class ParserRegistry:
             for sql_node in sql_nodes:
                 # Edge logic removed: BinaryMemoryBuilder.process_file handles this via node["ch"]
                 pass
+
+            # 4. Fallback: scan full HTML text for SQL blocks
+        try:
+            full_text = soup.get_text("\n", strip=True)
+        except Exception:
+            full_text = ""
+    
+        if full_text:
+            # Simple heuristics for T-SQL blocks containing CREATE PROC/FUNC/TABLE
+            sql_block_pattern = re.compile(
+                r"(?:/\*.*?\*/\s*)*"           # optional leading /* */ comments
+                r"(?:IF\s+EXISTS[^\n]*\n)?"   # optional IF EXISTS ... line
+                r".{0,200}?"                  # small prefix window
+                r"CREATE\s+(PROCEDURE|FUNCTION|TABLE)\b"  # the core marker
+                r"[\s\S]+?END\b",             # go through the END of the body
+                re.IGNORECASE
+            )
+    
+            for match in sql_block_pattern.finditer(full_text):
+                sql_text = match.group(0)
+    
+                # Optional: log for debugging
+                # print(f"[build_binary_memory] Fallback SQL block found in {file_id}:",
+                #       sql_text[:120].replace("\n", " "), "...")
+    
+                sql_nodes = self.parse_sql(
+                    Path(f"{file_id}::sql_block"),
+                    sql_text,
+                    file_id=file_id,
+                    dialect='tsql'
+                )
+                nodes.extend(sql_nodes)
         
         return nodes
 
