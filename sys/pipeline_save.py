@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+import threading
 from typing import Dict, Any, Optional
 
 class PipelineSaver:
@@ -18,7 +19,8 @@ class PipelineSaver:
         if os.path.exists(self.db_path):
             os.remove(self.db_path)
 
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self.lock = threading.Lock()
         self.conn.execute("PRAGMA synchronous = OFF")
         self.conn.execute("PRAGMA journal_mode = MEMORY")
 
@@ -46,24 +48,27 @@ class PipelineSaver:
 
     def save_node(self, node: Dict[str, Any]):
         """Save a node to the pipeline."""
-        self.conn.execute(
-            "INSERT OR REPLACE INTO nodes (id, data) VALUES (?, ?)",
-            (node["id"], json.dumps(node))
-        )
-        self.commit()
+        with self.lock:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO nodes (id, data) VALUES (?, ?)",
+                (node["id"], json.dumps(node))
+            )
+            self.commit()
 
     def save_edge(self, source: str, target: str, edge_type: int):
         """Save an edge to the pipeline."""
-        self.conn.execute(
-            "INSERT OR IGNORE INTO edges (source, target, type) VALUES (?, ?, ?)",
-            (source, target, edge_type)
-        )
-        self.commit()
+        with self.lock:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO edges (source, target, type) VALUES (?, ?, ?)",
+                (source, target, edge_type)
+            )
+            self.commit()
 
     def update_node(self, node_id: str, node: Dict[str, Any]):
         """Update a node's metadata."""
-        self.conn.execute("UPDATE nodes SET data = ? WHERE id = ?", (json.dumps(node), node_id))
-        self.commit()
+        with self.lock:
+            self.conn.execute("UPDATE nodes SET data = ? WHERE id = ?", (json.dumps(node), node_id))
+            self.commit()
 
     def get_node(self, node_id: str) -> Optional[Dict[str, Any]]:
         cur = self.conn.execute("SELECT data FROM nodes WHERE id = ?", (node_id,))

@@ -1,4 +1,6 @@
 import ast
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pipeline_save import PipelineSaver
 import hashlib
 import os
@@ -601,6 +603,7 @@ class BinaryMemoryBuilder:
         self.embeddings = {}
         self.parser_registry = ParserRegistry()
         self.saver = PipelineSaver(OUTPUT_DIR)
+        self.builder_lock = threading.Lock()
 
     def set_embedding(self, node_id: str, vector: List[float]):
             """Store embedding for a node."""
@@ -623,7 +626,7 @@ class BinaryMemoryBuilder:
         out.sort()
         return out
 
-    def build(self):
+    def build(self, max_workers: int = 4):
         files = self.discover()
 
         self.add_node({
@@ -645,8 +648,8 @@ class BinaryMemoryBuilder:
         })
         self.topo += 1
 
-        for path in files:
-            self.process_file(path)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            executor.map(self.process_file, files)
 
         self.resolve_import_edges()
         self.resolve_call_edges()
@@ -666,22 +669,30 @@ class BinaryMemoryBuilder:
             # Update root node to include child
             root_node = self.saver.get_node(".")
             if root_node:
-                root_node.setdefault("ch", []).append(node["id"])
-                self.saver.update_node(".", root_node)
-            self.topo += 1
+                with self.builder_lock:
+                    # In a highly concurrent scenario, another thread might have updated it
+                    # So we fetch again under lock or just update the list
+                    current_root = self.saver.get_node(".")
+                    if current_root:
+                        current_root.setdefault("ch", []).append(node["id"])
+                        self.saver.update_node(".", current_root)
+
+            with self.builder_lock:
+                self.topo += 1
             
             # Link extracted children (tables, rows, columns) to the file
             for child_id in node.get("ch", []):
                 self.add_edge(node["id"], child_id, EDGE_TYPE["contains"])
-                # The node should already have this child_id in "ch", but just to be sure we'd update if not
-                self.topo += 1
+                with self.builder_lock:
+                    self.topo += 1
             
             # Store imports/calls for resolution
             if path.suffix == '.py':
-                self.imp_idx[path.stem] = node["id"]
-                # Store calls for resolution
-                for call in node.get("cl", []):
-                    self.sym_idx.setdefault(call, []).append(node["id"]) # This is a simplification, usually calls are from functions
+                with self.builder_lock:
+                    self.imp_idx[path.stem] = node["id"]
+                    # Store calls for resolution
+                    for call in node.get("cl", []):
+                        self.sym_idx.setdefault(call, []).append(node["id"])
 
     def parse_python(self, path: Path, src: str) -> List[Dict]:
         nodes = []
@@ -741,11 +752,16 @@ class BinaryMemoryBuilder:
 
     def compute_called_by(self):
         # Initialize cb
+        nodes_to_update = []
         for n in self.saver.get_all_nodes():
             n["cb"] = []
+            nodes_to_update.append(n)
+        for n in nodes_to_update:
             self.saver.update_node(n["id"], n)
 
-        for s, t, e in self.saver.get_edges(edge_type=EDGE_TYPE["calls"]):
+        # Collect edges before mutating the nodes
+        call_edges = list(self.saver.get_edges(edge_type=EDGE_TYPE["calls"]))
+        for s, t, e in call_edges:
             target_node = self.saver.get_node(t)
             if target_node:
                 target_node.setdefault("cb", []).append(s)
@@ -760,7 +776,8 @@ class BinaryMemoryBuilder:
             if not cur_node: continue
             cur_d = cur_node.get("d", 0)
 
-            for s, t, e in self.saver.get_edges(source=cur, edge_type=EDGE_TYPE["contains"]):
+            contain_edges = list(self.saver.get_edges(source=cur, edge_type=EDGE_TYPE["contains"]))
+            for s, t, e in contain_edges:
                 if t not in seen:
                     target_node = self.saver.get_node(t)
                     if target_node:
