@@ -12,6 +12,8 @@ Phase 2 (Stub): Separate AI / embedding pipeline
 - See sys/build_embeddings.py
 """
 import ast
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pipeline_save import PipelineSaver
 import hashlib
 import json
@@ -599,6 +601,7 @@ class BinaryMemoryBuilder:
         self.embeddings = {}
         self.parser_registry = ParserRegistry()
         self.saver = PipelineSaver(OUTPUT_DIR)
+        self.builder_lock = threading.Lock()
 
     def set_embedding(self, node_id: str, vector: List[float]):
         self.embeddings[node_id] = vector
@@ -620,8 +623,7 @@ class BinaryMemoryBuilder:
         out.sort()
         return out
 
-    def build(self, parallel: bool = True, max_workers: int = None):
-        """Build index with optional parallel processing."""
+    def build(self, max_workers: int = 4):
         files = self.discover()
         print(f"[Builder] Discovered {len(files)} files")
         
@@ -635,58 +637,8 @@ class BinaryMemoryBuilder:
         })
         self.topo += 1
 
-        # Process files (parallel or sequential)
-        if parallel and len(files) > 10:
-            import concurrent.futures
-            import time
-            start_time = time.time()
-            
-            with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all files for processing
-                future_to_file = {executor.submit(self._process_file_safe, f): f for f in files}
-                results = []
-                total = len(files)
-                completed = 0
-                
-                for future in concurrent.futures.as_completed(future_to_file):
-                    try:
-                        file_nodes = future.result()
-                        results.append(file_nodes)
-                        completed += 1
-                        
-                        # Update progress every 10 files or at end
-                        if completed % 10 == 0 or completed == total:
-                            elapsed = time.time() - start_time
-                            rate = completed / elapsed if elapsed > 0 else 0
-                            eta = ((total-completed)/rate if rate > 0 else 0)
-                            print(f"\r[Builder] Progress: {completed}/{total} ({completed*100//total}%) | {rate:.1f} files/sec | ETA: {eta:.1f}s", end="", flush=True)
-                    except Exception as e:
-                        print(f"\n[Builder] Error processing file: {e}")
-                
-                # Final progress update
-                elapsed = time.time() - start_time
-                rate = completed / elapsed if elapsed > 0 else 0
-                print(f"\r[Builder] Progress: {completed}/{total} (100%) | {rate:.1f} files/sec | ETA: 0.0s\n", flush=True)
-                
-                # Flatten results
-                for file_nodes in results:
-                    for node in file_nodes:
-                        self.add_node(node)
-                        self.add_edge(".", node["id"], EDGE_TYPE["contains"])
-                        self.nodes[self.node_idx["."]]["ch"].append(node["id"])
-                        self.topo += 1
-                        for child_id in node.get("ch", []):
-                            self.add_edge(node["id"], child_id, EDGE_TYPE["contains"])
-                            self.nodes[self.node_idx[node["id"]]]["ch"].append(child_id)
-                            self.topo += 1
-                        if node.get("im"):
-                            self.imp_idx[node["id"]] = node["id"]
-                            for call in node.get("cl", []):
-                                self.sym_idx.setdefault(call, []).append(node["id"])
-                print()  # New line after progress
-        else:
-            for path in files:
-                self.process_file(path)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            executor.map(self.process_file, files)
 
         self.resolve_import_edges()
         self.resolve_call_edges()
@@ -706,19 +658,28 @@ class BinaryMemoryBuilder:
             # Update root node to include child
             root_node = self.saver.get_node(".")
             if root_node:
-                root_node.setdefault("ch", []).append(node["id"])
-                self.saver.update_node(".", root_node)
-            self.topo += 1
+                with self.builder_lock:
+                    # In a highly concurrent scenario, another thread might have updated it
+                    # So we fetch again under lock or just update the list
+                    current_root = self.saver.get_node(".")
+                    if current_root:
+                        current_root.setdefault("ch", []).append(node["id"])
+                        self.saver.update_node(".", current_root)
+
+            with self.builder_lock:
+                self.topo += 1
             
             for child_id in node.get("ch", []):
                 self.add_edge(node["id"], child_id, EDGE_TYPE["contains"])
-                # The node should already have this child_id in "ch", but just to be sure we'd update if not
-                self.topo += 1
+                with self.builder_lock:
+                    self.topo += 1
             
             if path.suffix == '.py':
-                self.imp_idx[path.stem] = node["id"]
-                for call in node.get("cl", []):
-                    self.sym_idx.setdefault(call, []).append(node["id"])
+                with self.builder_lock:
+                    self.imp_idx[path.stem] = node["id"]
+                    # Store calls for resolution
+                    for call in node.get("cl", []):
+                        self.sym_idx.setdefault(call, []).append(node["id"])
 
     def parse_python(self, path: Path, src: str) -> List[Dict]:
         return self.parser_registry.parse_python(path, src)
@@ -749,11 +710,16 @@ class BinaryMemoryBuilder:
 
     def compute_called_by(self):
         # Initialize cb
+        nodes_to_update = []
         for n in self.saver.get_all_nodes():
             n["cb"] = []
+            nodes_to_update.append(n)
+        for n in nodes_to_update:
             self.saver.update_node(n["id"], n)
 
-        for s, t, e in self.saver.get_edges(edge_type=EDGE_TYPE["calls"]):
+        # Collect edges before mutating the nodes
+        call_edges = list(self.saver.get_edges(edge_type=EDGE_TYPE["calls"]))
+        for s, t, e in call_edges:
             target_node = self.saver.get_node(t)
             if target_node:
                 target_node.setdefault("cb", []).append(s)
@@ -768,7 +734,8 @@ class BinaryMemoryBuilder:
             if not cur_node: continue
             cur_d = cur_node.get("d", 0)
 
-            for s, t, e in self.saver.get_edges(source=cur, edge_type=EDGE_TYPE["contains"]):
+            contain_edges = list(self.saver.get_edges(source=cur, edge_type=EDGE_TYPE["contains"]))
+            for s, t, e in contain_edges:
                 if t not in seen:
                     target_node = self.saver.get_node(t)
                     if target_node:
