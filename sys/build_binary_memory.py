@@ -1,4 +1,5 @@
 import ast
+from pipeline_save import PipelineSaver
 import hashlib
 import os
 import struct
@@ -594,27 +595,22 @@ class ParserRegistry:
 class BinaryMemoryBuilder:
     def __init__(self, root_dir: str):
         self.root = Path(root_dir).resolve()
-        self.nodes: List[Dict] = []
-        self.edges: List[List] = []
-        self.node_idx: Dict[str, int] = {}
         self.sym_idx: Dict[str, List[str]] = {}
         self.imp_idx: Dict[str, str] = {}
         self.topo = 0
-        self.content_buffer = b""
-        self.content_offsets = {} # Map node_id -> (offset, length)
         self.embeddings = {}
         self.parser_registry = ParserRegistry()
+        self.saver = PipelineSaver(OUTPUT_DIR)
 
     def set_embedding(self, node_id: str, vector: List[float]):
             """Store embedding for a node."""
             self.embeddings[node_id] = vector
 
     def add_node(self, obj: Dict):
-        self.node_idx[obj["id"]] = len(self.nodes)
-        self.nodes.append(obj)
+        self.saver.save_node(obj)
 
     def add_edge(self, s: str, t: str, e: int):
-        self.edges.append([s, t, e])
+        self.saver.save_edge(s, t, e)
 
     def discover(self) -> List[Path]:
         out = []
@@ -622,7 +618,7 @@ class BinaryMemoryBuilder:
             dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS]
             for fn in filenames:
                 p = Path(dirpath) / fn
-                if p.suffix in INCLUDED_EXTENSIONS:
+                if p.suffix in INCLUDED_EXTENSIONS or p.suffix == '.py':
                     out.append(p)
         out.sort()
         return out
@@ -666,13 +662,18 @@ class BinaryMemoryBuilder:
         for node in nodes:
             self.add_node(node)
             self.add_edge(".", node["id"], EDGE_TYPE["contains"])
-            self.nodes[self.node_idx["."]]["ch"].append(node["id"])
+
+            # Update root node to include child
+            root_node = self.saver.get_node(".")
+            if root_node:
+                root_node.setdefault("ch", []).append(node["id"])
+                self.saver.update_node(".", root_node)
             self.topo += 1
             
             # Link extracted children (tables, rows, columns) to the file
             for child_id in node.get("ch", []):
                 self.add_edge(node["id"], child_id, EDGE_TYPE["contains"])
-                self.nodes[self.node_idx[node["id"]]]["ch"].append(child_id)
+                # The node should already have this child_id in "ch", but just to be sure we'd update if not
                 self.topo += 1
             
             # Store imports/calls for resolution
@@ -714,7 +715,7 @@ class BinaryMemoryBuilder:
         return nodes
 
     def resolve_import_edges(self):
-        for node in self.nodes:
+        for node in self.saver.get_all_nodes():
             src_id = node["id"]
             for imp in node.get("im", []):
                 base = imp.split(".")[0]
@@ -723,7 +724,7 @@ class BinaryMemoryBuilder:
 
     def resolve_call_edges(self):
         seen: Set[Tuple[str, str, int]] = set()
-        for node in self.nodes:
+        for node in self.saver.get_all_nodes():
             src_id = node["id"]
             resolved_calls = [] # Create a new list for actual IDs
             for call in node.get("cl", []):
@@ -733,37 +734,53 @@ class BinaryMemoryBuilder:
                     resolved_calls.append(target) # Store the Node ID
                     trip = (src_id, target, EDGE_TYPE["calls"])
                     if trip not in seen:
-                        self.edges.append([src_id, target, EDGE_TYPE["calls"]])
+                        self.saver.save_edge(src_id, target, EDGE_TYPE["calls"])
                         seen.add(trip)
             node["cl"] = list(set(resolved_calls)) # Replace strings with IDs
+            self.saver.update_node(src_id, node)
 
     def compute_called_by(self):
-        for n in self.nodes:
+        # Initialize cb
+        for n in self.saver.get_all_nodes():
             n["cb"] = []
-        for s, t, e in self.edges:
-            if e == EDGE_TYPE["calls"] and t in self.node_idx:
-                self.nodes[self.node_idx[t]]["cb"].append(s)
+            self.saver.update_node(n["id"], n)
+
+        for s, t, e in self.saver.get_edges(edge_type=EDGE_TYPE["calls"]):
+            target_node = self.saver.get_node(t)
+            if target_node:
+                target_node.setdefault("cb", []).append(s)
+                self.saver.update_node(t, target_node)
 
     def compute_depths(self):
         q = ["."]
         seen = {"."}
         while q:
             cur = q.pop(0)
-            cur_d = self.nodes[self.node_idx[cur]]["d"]
-            for s, t, e in self.edges:
-                if s == cur and e == EDGE_TYPE["contains"] and t not in seen:
-                    self.nodes[self.node_idx[t]]["d"] = cur_d + 1
-                    q.append(t)
-                    seen.add(t)
+            cur_node = self.saver.get_node(cur)
+            if not cur_node: continue
+            cur_d = cur_node.get("d", 0)
+
+            for s, t, e in self.saver.get_edges(source=cur, edge_type=EDGE_TYPE["contains"]):
+                if t not in seen:
+                    target_node = self.saver.get_node(t)
+                    if target_node:
+                        target_node["d"] = cur_d + 1
+                        self.saver.update_node(t, target_node)
+                        q.append(t)
+                        seen.add(t)
 
     def generate_embeddings(self):
         print("[build_binary_memory] Generating embeddings with sentence-transformers...")
+        # Since we are using pipeline saver we iterate over self.saver.get_all_nodes()
+        # for node in self.saver.get_all_nodes():
+        #    ...
         return
 
 
 
 
     def export_binary(self):
+        self.saver.finalize()
         os.makedirs(os.path.dirname(INDEX_FILE), exist_ok=True)
         
         # Prepare temporary storage for offsets
@@ -771,7 +788,7 @@ class BinaryMemoryBuilder:
         
         # 1. Stream Content to disk immediately (avoids massive RAM usage)
         with open(CONTENT_FILE, "wb") as content_f:
-            for node in self.nodes:
+            for node in self.saver.get_all_nodes():
                 sx = node.get("sx", "")
                 offset = content_f.tell()
                 content_bytes = sx.encode("utf-8")
@@ -781,9 +798,10 @@ class BinaryMemoryBuilder:
         # 2. Write Index
         with open(INDEX_FILE, "wb") as idx_f:
             # Header: Magic (4), Version (4), Count (4)
-            idx_f.write(struct.pack('<III', MAGIC_NUMBER, 2, len(self.nodes)))
+            num_nodes = self.saver.get_node_count()
+            idx_f.write(struct.pack('<III', MAGIC_NUMBER, 2, num_nodes))
             
-            for i, node in enumerate(self.nodes):
+            for i, node in enumerate(self.saver.get_all_nodes()):
                 nid = node["id"]
                 pid = node.get("p", "")
                 
@@ -832,9 +850,8 @@ class BinaryMemoryBuilder:
                 
                 # Generic Edge Array
                 node_edges = {}
-                for s, t, e in self.edges:
-                    if s == nid:
-                        node_edges.setdefault(e, []).append(t)
+                for s, t, e in self.saver.get_edges(source=nid):
+                    node_edges.setdefault(e, []).append(t)
                 for child_id in node.get("ch", []):
                     node_edges.setdefault(EDGE_TYPE["contains"], []).append(child_id)
 
@@ -858,7 +875,7 @@ class BinaryMemoryBuilder:
                     idx_f.write(struct.pack('<f', val))
 
         print(f"[build_binary_memory] Saved {INDEX_FILE} and {CONTENT_FILE}")
-        print(f"[build_binary_memory] nodes={len(self.nodes)} edges={len(self.edges)}")
+        print(f"[build_binary_memory] nodes={self.saver.get_node_count()} edges={self.saver.get_edge_count()}")
 
 
 if __name__ == "__main__":
