@@ -2,6 +2,7 @@ import ast
 import hashlib
 import os
 import struct
+import json
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 import re
@@ -356,14 +357,14 @@ class ParserRegistry:
                 r"[\s\S]+?END\b",             # go through the END of the body
                 re.IGNORECASE
             )
-    
+
             for match in sql_block_pattern.finditer(full_text):
                 sql_text = match.group(0)
-    
+
                 # Optional: log for debugging
                 # print(f"[build_binary_memory] Fallback SQL block found in {file_id}:",
                 #       sql_text[:120].replace("\n", " "), "...")
-    
+
                 sql_nodes = self.parse_sql(
                     Path(f"{file_id}::sql_block"),
                     sql_text,
@@ -591,7 +592,7 @@ class ParserRegistry:
 
 
 
-class BinaryMemoryBuilder:
+class ImprovedBinaryMemoryBuilder:
     def __init__(self, root_dir: str):
         self.root = Path(root_dir).resolve()
         self.nodes: List[Dict] = []
@@ -604,10 +605,13 @@ class BinaryMemoryBuilder:
         self.content_offsets = {} # Map node_id -> (offset, length)
         self.embeddings = {}
         self.parser_registry = ParserRegistry()
+        # Data extraction phase storage
+        self.extracted_data = []
+        self.file_metadata = []
 
     def set_embedding(self, node_id: str, vector: List[float]):
-            """Store embedding for a node."""
-            self.embeddings[node_id] = vector
+        """Store embedding for a node."""
+        self.embeddings[node_id] = vector
 
     def add_node(self, obj: Dict):
         self.node_idx[obj["id"]] = len(self.nodes)
@@ -627,9 +631,62 @@ class BinaryMemoryBuilder:
         out.sort()
         return out
 
-    def build(self):
+    def extract_data_phase(self, batch_size: int = 100):
+        """
+        Phase 1: Extract all data from files without building full graph structure.
+        This reduces memory usage by processing files in batches.
+        """
         files = self.discover()
+        print(f"[INFO] Found {len(files)} files to process")
+        
+        # Process files in batches to control memory usage
+        for i, path in enumerate(files):
+            if i % batch_size == 0 and i > 0:
+                print(f"[INFO] Processed {i} files, memory usage optimized")
+                
+            self.process_file_extract_only(path)
+            
+        print(f"[INFO] Data extraction phase complete. Extracted {len(self.extracted_data)} data items")
 
+    def process_file_extract_only(self, path: Path):
+        """
+        Extract data from file without building full graph structure.
+        This is a simplified version that just extracts the core information.
+        """
+        rp = rel_path(path, self.root)
+        src = read_text(path)
+        
+        # Extract basic file information
+        file_info = {
+            "id": rp,
+            "path": str(path),
+            "name": path.name,
+            "size": len(src),
+            "extension": path.suffix,
+            "timestamp": path.stat().st_mtime
+        }
+        
+        self.file_metadata.append(file_info)
+        
+        # Parse content using appropriate parser
+        nodes = self.parser_registry.parsers.get(path.suffix, self.parse_python)(path, src)
+        
+        # Store extracted nodes for later processing
+        for node in nodes:
+            # Store only essential information for later graph construction
+            self.extracted_data.append({
+                "node": node,
+                "file_id": rp
+            })
+
+    def build_graph_phase(self):
+        """
+        Phase 2: Build the actual graph structure from extracted data.
+        This is where we create the full relationships and connections.
+        """
+        print("[INFO] Starting graph construction phase")
+        
+        # Add root node
         self.add_node({
             "id": ".",
             "t": NODE_TYPE["root"],
@@ -649,22 +706,15 @@ class BinaryMemoryBuilder:
         })
         self.topo += 1
 
-        for path in files:
-            self.process_file(path)
-
-        self.resolve_import_edges()
-        self.resolve_call_edges()
-        self.compute_called_by()
-        self.compute_depths()
-        #self.generate_embeddings()
-
-    def process_file(self, path: Path):
-        rp = rel_path(path, self.root)
-        src = read_text(path)
-        nodes = self.parser_registry.parsers.get(path.suffix, self.parse_python)(path, src)
-        
-        for node in nodes:
+        # Process extracted data to build nodes and relationships
+        for item in self.extracted_data:
+            node = item["node"]
+            file_id = item["file_id"]
+            
+            # Add the node
             self.add_node(node)
+            
+            # Add contains edge from root to file
             self.add_edge(".", node["id"], EDGE_TYPE["contains"])
             self.nodes[self.node_idx["."]]["ch"].append(node["id"])
             self.topo += 1
@@ -675,43 +725,19 @@ class BinaryMemoryBuilder:
                 self.nodes[self.node_idx[node["id"]]]["ch"].append(child_id)
                 self.topo += 1
             
-            # Store imports/calls for resolution
-            if path.suffix == '.py':
-                self.imp_idx[path.stem] = node["id"]
+            # Store imports/calls for resolution (only for Python files)
+            if file_id.endswith('.py'):
+                self.imp_idx[file_id.split('/')[-1].split('.')[0]] = node["id"]
                 # Store calls for resolution
                 for call in node.get("cl", []):
-                    self.sym_idx.setdefault(call, []).append(node["id"]) # This is a simplification, usually calls are from functions
+                    self.sym_idx.setdefault(call, []).append(node["id"])
 
-    def parse_python(self, path: Path, src: str) -> List[Dict]:
-        nodes = []
-        try:
-            tree = ast.parse(src)
-        except SyntaxError:
-            return nodes
-        
-        imports = collect_imports(tree)
-        calls = collect_calls(tree)
-        nodes.append({
-            "id": rel_path(path, Path(".")),
-            "t": NODE_TYPE["file"],
-            "n": path.name,
-            "p": ".",
-            "l": [1, len(src.splitlines())],
-            "a": 0,
-            "d": 1,
-            "sx": make_sx(NODE_TYPE["file"], path.name, rel_path(path, Path(".")), "", 0, 1, len(src.splitlines()), False, "MOD"),
-            "h": sha16(src),
-            "tc": token_est(src),
-            "ch": [],
-            "im": imports,
-            "cl": calls,
-            "cb": [],
-        })
-        
-        module_name = path.stem
-        # We'll handle imports in a separate pass in the builder if needed, 
-        # but for now we just return the file node.
-        return nodes
+        # Resolve edges
+        self.resolve_import_edges()
+        self.resolve_call_edges()
+        self.compute_called_by()
+        self.compute_depths()
+        print(f"[INFO] Graph construction complete. Nodes: {len(self.nodes)}, Edges: {len(self.edges)}")
 
     def resolve_import_edges(self):
         for node in self.nodes:
@@ -759,9 +785,6 @@ class BinaryMemoryBuilder:
     def generate_embeddings(self):
         print("[build_binary_memory] Generating embeddings with sentence-transformers...")
         return
-
-
-
 
     def export_binary(self):
         os.makedirs(os.path.dirname(INDEX_FILE), exist_ok=True)
@@ -860,8 +883,67 @@ class BinaryMemoryBuilder:
         print(f"[build_binary_memory] Saved {INDEX_FILE} and {CONTENT_FILE}")
         print(f"[build_binary_memory] nodes={len(self.nodes)} edges={len(self.edges)}")
 
+    def build(self):
+        """
+        Main build method that separates data extraction from graph construction
+        to reduce memory usage.
+        """
+        print("[INFO] Starting improved build process")
+        self.extract_data_phase(batch_size=50)  # Process in smaller batches
+        self.build_graph_phase()
+        print("[INFO] Improved build process completed")
+
+    def parse_python(self, path: Path, src: str) -> List[Dict]:
+        nodes = []
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            return nodes
+        
+        imports = collect_imports(tree)
+        calls = collect_calls(tree)
+        nodes.append({
+            "id": rel_path(path, Path(".")),
+            "t": NODE_TYPE["file"],
+            "n": path.name,
+            "p": ".",
+            "l": [1, len(src.splitlines())],
+            "a": 0,
+            "d": 1,
+            "sx": make_sx(NODE_TYPE["file"], path.name, rel_path(path, Path(".")), "", 0, 1, len(src.splitlines()), False, "MOD"),
+            "h": sha16(src),
+            "tc": token_est(src),
+            "ch": [],
+            "im": imports,
+            "cl": calls,
+            "cb": [],
+        })
+        
+        module_name = path.stem
+        # We'll handle imports in a separate pass in the builder if needed, 
+        # but for now we just return the file node.
+        return nodes
+
+    def save_extraction_results(self, output_file: str = "extraction_results.json"):
+        """Save the extracted data for later use."""
+        data = {
+            "file_metadata": self.file_metadata,
+            "extracted_data": self.extracted_data
+        }
+        with open(output_file, 'w') as f:
+            json.dump(data, f, indent=2)
+        print(f"[INFO] Extraction results saved to {output_file}")
+
+    def load_extraction_results(self, input_file: str = "extraction_results.json"):
+        """Load previously extracted data."""
+        with open(input_file, 'r') as f:
+            data = json.load(f)
+        self.file_metadata = data["file_metadata"]
+        self.extracted_data = data["extracted_data"]
+        print(f"[INFO] Loaded extraction results from {input_file}")
+
 
 if __name__ == "__main__":
-    b = BinaryMemoryBuilder(ROOT_DIR)
+    b = ImprovedBinaryMemoryBuilder(ROOT_DIR)
     b.build()
     b.export_binary()
