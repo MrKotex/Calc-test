@@ -224,13 +224,13 @@ class ParserRegistry:
             block_id = f"block_{block_counter}"
             block_id_full = f"html:{file_id}#{block_id}"
             block_counter += 1
-            
+
             # Infer kind from nearby headings or context
             kind = "sql_example"
             prev_heading = tag.find_previous(['h1','h2','h3','h4','h5','h6'])
             if prev_heading:
                 kind = prev_heading.get_text(strip=True).lower().replace(' ', '_')
-            
+
             # Extract canonical SQL objects from this block
             sql_object_id = ""
             obj_nodes = []
@@ -240,11 +240,11 @@ class ParserRegistry:
                     obj_type = proc_match.group(1).lower()
                     obj_name = proc_match.group(2)
                     sql_object_id = safe_sql_id(obj_name, "proc")
-                    
+
                     # Extract parameters robustly (case-insensitive types)
                     param_pattern = r'@(\w+)\s+(VARCHAR|INT|DECIMAL|DATETIME|SMALLINT|BIT|NVARCHAR|CHAR|NCHAR|FLOAT|REAL|NUMERIC|MONEY|UNIQUEIDENTIFIER|TIMESTAMP|IMAGE|TEXT|VARBINARY|BINARY)\s*(=\s*[^,\n]+)?'
                     params = re.findall(param_pattern, clean_text, re.IGNORECASE)
-                    
+
                     # Extract referenced tables (bulletproof flattening)
                     raw_reads = []
                     raw_writes = []
@@ -256,7 +256,7 @@ class ParserRegistry:
                             if t_id not in raw_writes: raw_writes.append(t_id)
                         else:
                             if t_id not in raw_reads: raw_reads.append(t_id)
-                    
+
                     obj_nodes.append({
                         "id": sql_object_id, "t": NODE_TYPE["function"], "n": obj_name, "p": file_id,
                         "l": [0, 0], "a": 0, "d": 2,
@@ -273,7 +273,7 @@ class ParserRegistry:
                 if table_match:
                     table_name = table_match.group(1)
                     sql_object_id = safe_sql_id(table_name, "sql")
-                    
+
                     # Extract columns from CREATE TABLE
                     col_pattern = r'(@?\w+)\s+(\w+)'
                     cols_str = re.search(rf'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?{re.escape(table_name)}\s*\(([^)]+)\)', clean_text, re.IGNORECASE)
@@ -281,7 +281,7 @@ class ParserRegistry:
                     if cols_str:
                         for col_match in re.finditer(col_pattern, cols_str.group(1)):
                             columns.append({"name": col_match.group(1), "type": col_match.group(2)})
-                            
+
                     obj_nodes.append({
                         "id": sql_object_id, "t": NODE_TYPE["table"], "n": table_name, "p": file_id,
                         "l": [0, 0], "a": 0, "d": 2,
@@ -289,7 +289,7 @@ class ParserRegistry:
                         "h": sha16(clean_text), "tc": token_est(clean_text), "ch": [], "im": [], "cl": [], "cb": [],
                         "meta": {"db_name": "", "schema_name": "", "object_name": table_name, "object_type": "table", "columns": columns}
                     })
-            
+
             # Create nodes for referenced tables that weren't defined in this block
             for t_name in re.findall(r'(?:FROM|JOIN|INSERT\s+INTO|UPDATE)\s+([A-Za-z0-9_.]+)', clean_text, re.IGNORECASE):
                 if t_name.startswith('@') or t_name.upper() in ('SELECT', 'WHERE', 'SET', 'VALUES'): continue
@@ -323,7 +323,7 @@ class ParserRegistry:
                                 col_name = col.group(1)
                                 if col_name and not col_name.startswith('@') and not col_name.isdigit() and col_name.upper() not in ('ON', 'AND', 'OR', 'WHERE', 'SET', 'NULL', 'IS', 'NOT', 'IN', 'BETWEEN', 'LIKE', 'EXISTS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'AS', 'SELECT', 'FROM', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'CROSS', 'FULL'):
                                     inferred_cols.add(col_name)
-                    
+
                     obj_nodes.append({
                         "id": t_id, "t": NODE_TYPE["table"], "n": t_name, "p": file_id,
                         "l": [0, 0], "a": 0, "d": 2,
@@ -374,7 +374,7 @@ class ParserRegistry:
                 block_id = f"block_{block_counter}"
                 block_id_full = f"html:{file_id}#{block_id}"
                 block_counter += 1
-                
+
                 obj_type = match.group(1).lower()
                 obj_name_match = re.search(r'CREATE\s+(?:PROCEDURE|FUNCTION)\s+([^\s@]+)', sql_text, re.IGNORECASE)
                 obj_name = obj_name_match.group(1) if obj_name_match else "unknown"
@@ -527,7 +527,7 @@ class ParserRegistry:
         # 2. Extract Procedure/Function Name
         proc_match = re.search(r'CREATE\s+(PROCEDURE|FUNCTION)\s+([^\s@]+)', src, re.IGNORECASE)
         if not proc_match:
-            return nodes 
+            return nodes
             
         obj_type = proc_match.group(1)
         obj_name = proc_match.group(2)
@@ -626,7 +626,7 @@ class BinaryMemoryBuilder:
     def build(self, max_workers: int = 4):
         files = self.discover()
         print(f"[Builder] Discovered {len(files)} files")
-        
+
         # Add root node
         self.add_node({
             "id": ".", "t": NODE_TYPE["root"], "n": "root", "p": "",
@@ -760,20 +760,21 @@ class BinaryMemoryBuilder:
         content_offsets = []
         
         print("[Builder] Starting streaming export...")
-        
+
         # 1. Stream Content (sx signatures) to disk immediately
+        num_nodes_total = self.saver.get_node_count()
         with open(CONTENT_FILE, "wb") as content_f:
-            for node in self.saver.get_all_nodes():
+            for j, node in enumerate(self.saver.get_all_nodes()):
                 sx = node.get("sx", "")
                 offset = content_f.tell()
                 content_bytes = sx.encode("utf-8")
                 content_f.write(content_bytes)
                 content_offsets.append((offset, len(content_bytes)))
-                
+
                 # Progress every 100 nodes
-                if (i + 1) % 100 == 0:
-                    print(f"\r[Builder] Content: {i+1}/{len(self.nodes)} nodes", end="", flush=True)
-        print(f"\r[Builder] Content: {len(self.nodes)}/{len(self.nodes)} nodes done\n", flush=True)
+                if (j + 1) % 100 == 0:
+                    print(f"\r[Builder] Content: {j+1}/{num_nodes_total} nodes", end="", flush=True)
+        print(f"\r[Builder] Content: {num_nodes_total}/{num_nodes_total} nodes done\n", flush=True)
         
         # 2. Write Index incrementally
         with open(INDEX_FILE, "wb") as idx_f:
@@ -781,6 +782,7 @@ class BinaryMemoryBuilder:
             num_nodes = self.saver.get_node_count()
             idx_f.write(struct.pack('<III', MAGIC_NUMBER, 2, num_nodes))
             
+            i = -1
             for i, node in enumerate(self.saver.get_all_nodes()):
                 nid = node["id"]
                 pid = node.get("p", "")
@@ -795,11 +797,38 @@ class BinaryMemoryBuilder:
                 
                 idx_f.write(struct.pack('<B', node["t"]))
                 
-                # Structured Metadata Blob (Phase 2 AI-friendly)
-                meta = node.get("meta", {})
-                meta_json = json.dumps(meta, ensure_ascii=True).encode('utf-8')
-                idx_f.write(struct.pack('<I', len(meta_json)))
-                idx_f.write(meta_json)
+                # Handle SQL node types (reverted back to original from the new version we somehow grabbed)
+                if node["t"] in (NODE_TYPE["table"], NODE_TYPE["view"], NODE_TYPE["schema"]):
+                    db_name = node.get("db", "")
+                    db_bytes = db_name.encode('utf-8')
+                    idx_f.write(struct.pack('<I', len(db_bytes)))
+                    idx_f.write(db_bytes)
+
+                    columns = node.get("columns", [])
+                    idx_f.write(struct.pack('<I', len(columns)))
+                    for col in columns:
+                        col_bytes = col.encode('utf-8')
+                        idx_f.write(struct.pack('<I', len(col_bytes)))
+                        idx_f.write(col_bytes)
+
+                    snippet = node.get("snippet", "")
+                    snippet_bytes = snippet.encode('utf-8')
+                    idx_f.write(struct.pack('<I', len(snippet_bytes)))
+                    idx_f.write(snippet_bytes)
+
+                elif node["t"] == NODE_TYPE["column"]:
+                    table_name = node.get("table", "")
+                    table_bytes = table_name.encode('utf-8')
+                    idx_f.write(struct.pack('<I', len(table_bytes)))
+                    idx_f.write(table_bytes)
+
+                    dtype = node.get("dtype", "")
+                    dtype_bytes = dtype.encode('utf-8')
+                    idx_f.write(struct.pack('<I', len(dtype_bytes)))
+                    idx_f.write(dtype_bytes)
+
+                    nullable = node.get("nullable", False)
+                    idx_f.write(struct.pack('?', nullable))
                 
                 # Generic Edge Array
                 node_edges = {}
@@ -818,17 +847,21 @@ class BinaryMemoryBuilder:
                         idx_f.write(struct.pack('<I', len(target_bytes)))
                         idx_f.write(target_bytes)
                 
-                offset, length = content_offsets[i]
-                idx_f.write(struct.pack('<Q', offset))
-                idx_f.write(struct.pack('<I', length))
+                offset_t, length_t = content_offsets[i]
+                idx_f.write(struct.pack('<Q', offset_t))
+                idx_f.write(struct.pack('<I', length_t))
 
-                # Phase 1: NO EMBEDDING VECTORS WRITTEN
-                # idx_f.write(struct.pack('<I', 0)) # Removed vector length
-                
+                # Write 0 for embedding vectors to match binary format expectation
+                idx_f.write(struct.pack('<I', 0))
+
                 # Progress every 100 nodes
                 if (i + 1) % 100 == 0:
-                    print(f"\r[Builder] Index: {i+1}/{len(self.nodes)} nodes", end="", flush=True)
-        print(f"\r[Builder] Index: {len(self.nodes)}/{len(self.nodes)} nodes done\n", flush=True)
+                    print(f"\r[Builder] Index: {i+1}/{num_nodes} nodes", end="", flush=True)
+        try:
+            if i >= 0:
+                print(f"\r[Builder] Index: {num_nodes}/{num_nodes} nodes done\n", flush=True)
+        except NameError:
+            pass
 
         print(f"[build_binary_memory] Saved {INDEX_FILE} and {CONTENT_FILE}")
         print(f"[build_binary_memory] nodes={self.saver.get_node_count()} edges={self.saver.get_edge_count()}")
@@ -840,7 +873,7 @@ if __name__ == "__main__":
     parser.add_argument("--parallel", action="store_true", help="Enable parallel processing")
     parser.add_argument("--workers", type=int, default=None, help="Number of workers")
     args = parser.parse_args()
-    
+
     b = BinaryMemoryBuilder(ROOT_DIR)
-    b.build(parallel=args.parallel, max_workers=args.workers)
+    b.build(max_workers=args.workers if args.workers is not None else 4)
     b.export_binary()
