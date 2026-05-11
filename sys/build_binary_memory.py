@@ -625,7 +625,12 @@ class BinaryMemoryBuilder:
 
     def build(self, max_workers: int = 4):
         files = self.discover()
-        print(f"[Builder] Discovered {len(files)} files")
+
+        # Log file extensions
+        ext_counts = {}
+        for f in files:
+            ext_counts[f.suffix] = ext_counts.get(f.suffix, 0) + 1
+        print(f"[Builder] Discovered {len(files)} files. Extensions: {ext_counts}")
 
         # Add root node
         self.add_node({
@@ -865,6 +870,23 @@ class BinaryMemoryBuilder:
 
         print(f"[build_binary_memory] Saved {INDEX_FILE} and {CONTENT_FILE}")
         print(f"[build_binary_memory] nodes={self.saver.get_node_count()} edges={self.saver.get_edge_count()}")
+
+        # Output Regression Snapshot
+        stats = {
+            "total_nodes": self.saver.get_node_count(),
+            "total_edges": self.saver.get_edge_count(),
+            "nodes_per_type": {},
+            "avg_degree": self.saver.get_edge_count() / self.saver.get_node_count() if self.saver.get_node_count() > 0 else 0
+        }
+
+        for node in self.saver.get_all_nodes():
+            t = str(node.get("t", "unknown"))
+            stats["nodes_per_type"][t] = stats["nodes_per_type"].get(t, 0) + 1
+
+        stats_file = os.path.join(os.path.dirname(INDEX_FILE), "build_stats.json")
+        with open(stats_file, "w") as sf:
+            json.dump(stats, sf, indent=2)
+        print(f"[build_binary_memory] Regression snapshot saved to {stats_file}")
 
 
 if __name__ == "__main__":
