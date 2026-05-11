@@ -1,0 +1,51 @@
+{
+  "total_nodes": 13441,
+  "total_edges": 15977,
+  "nodes_per_type": {
+    "0": 1,
+    "1": 8435,
+    "10": 2041,
+    "5": 2137,
+    "3": 827
+  },
+  "avg_degree": 1.1886764377650472
+}
+
+
+python .\sys\verify_graph.py                   
+[OK] No dangling edges found.
+
+[Info] Total Nodes: 13441
+[Info] Node Type Distribution:
+  - file: 8435
+  - table: 2137
+  - unknown_10: 2041
+  - function: 827
+  - root: 1
+
+[Info] Degree Sanity:
+  - Nodes with 0 edges (isolated): 0
+  - Nodes with > 5000 edges (hub): 1
+[WARNING] Huge hub nodes detected. Check for runaway clustering.
+
+[Semantic Check] Sampling 5 random file nodes:
+  File: row_6
+    Children count: 0
+  File: row_7
+    Children count: 8
+      -> ./sql_data/[REDACTED]::table.unnamed_table_0::row.0
+      -> ./sql_data/[REDACTED]::table.unnamed_table_0::row.1
+      -> ./sql_data/[REDACTED]::table.unnamed_table_0::row.2
+      -> ./sql_data/[REDACTED]::table.unnamed_table_0::row.3
+      -> ./sql_data/[REDACTED]::table.unnamed_table_0::row.4
+      ... and 3 more
+  File: row_3
+    Children count: 0
+  File: row_3
+    Children count: 0
+  File: row_3
+    Children count: 0
+
+[Baseline] Running regex scanner on raw files in 'sql_data'...
+  -> Regex found ~1378 CREATE TABLE statements.
+  -> Regex found ~1711 CREATE PROCEDURE/FUNCTION statements.
