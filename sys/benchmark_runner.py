@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 from scout_agent_binary import BinaryScoutAgent
 
-QUESTIONS_FILE = "benchmark_questions.json"
+QUESTIONS_FILE = "sys/benchmark_questions.json"
 OUT_FILE = ".context-tree/benchmark_results.json"
 
 def hit_at_k(ranked_nodes, gold_nodes, k):
