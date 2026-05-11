@@ -4,3 +4,5 @@ sys/__pycache__/scout_agent_binary.cpython-314.pyc
 .context-tree/pipeline.db
 sys/__pycache__/pipeline_save.cpython-314.pyc
 .gitignore
+.context-tree/memory_content.bin
+.context-tree/memory_index.bin
