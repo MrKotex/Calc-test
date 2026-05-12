@@ -108,8 +108,9 @@ def make_sx_generic(t: int, n: str, f: str, extra: str = "") -> str:
     return make_sx(t, n, f, extra)
 
 class ParserRegistry:
-    def __init__(self):
+    def __init__(self, debug_sql: bool = False):
         self.parsers = {}
+        self.debug_sql = debug_sql
         self.register('.py', self.parse_python)
         if HAS_BS4:
             self.register('.html', self.parse_html)
@@ -201,14 +202,32 @@ class ParserRegistry:
             for r_idx, row in enumerate(rows):
                 row_id = f"{table_id}::row.{r_idx}"
                 row_data = [td.get_text(strip=True) for td in row.find_all('td')]
+
+                row_children = []
+                for c_idx, td in enumerate(row.find_all('td')):
+                    if c_idx < len(headers):
+                        cell_id = f"{row_id}::cell.{c_idx}"
+                        nodes.append({
+                            "id": cell_id, "t": NODE_TYPE["file"], "n": f"cell_{c_idx}", "p": row_id,
+                            "l": [0, 0], "a": 0, "d": 4,
+                            "sx": make_sx_generic(NODE_TYPE["file"], f"cell_{c_idx}", file_id, f"cell_data:{td.get_text(strip=True)}"),
+                            "h": sha16(str(td)), "tc": token_est(str(td)), "ch": [], "im": [], "cl": [], "cb": [],
+                        })
+                        row_children.append(cell_id)
+
                 nodes.append({
                     "id": row_id, "t": NODE_TYPE["file"], "n": f"row_{r_idx}", "p": table_id,
                     "l": [0, 0], "a": 0, "d": 3,
                     "sx": make_sx_generic(NODE_TYPE["file"], f"row_{r_idx}", file_id, f"data:{','.join(row_data[:3])}..."),
-                    "h": sha16(str(row)), "tc": token_est(str(row)), "ch": [], "im": [], "cl": [], "cb": [],
+                    "h": sha16(str(row)), "tc": token_est(str(row)), "ch": row_children, "im": [], "cl": [], "cb": [],
                 })
                 table_children.append(row_id)
-            nodes[-1]["ch"] = table_children
+
+            # Find the table node in nodes and assign children
+            for n in nodes:
+                if n["id"] == table_id:
+                    n["ch"] = table_children
+                    break
 
         # 3. Extract SQL from <PRE> / <CODE> tags & create canonical SQL nodes
         block_counter = 1
@@ -235,7 +254,7 @@ class ParserRegistry:
             sql_object_id = ""
             obj_nodes = []
             if 'PROCEDURE' in clean_text.upper() or 'FUNCTION' in clean_text.upper():
-                proc_match = re.search(r'CREATE\s+(PROCEDURE|FUNCTION)\s+([^\s@\(]+)', clean_text, re.IGNORECASE)
+                proc_match = re.search(r'CREATE\s+(PROCEDURE|FUNCTION)\s+([A-Za-z0-9_\]\[\.]+)', clean_text, re.IGNORECASE)
                 if proc_match:
                     obj_type = proc_match.group(1).lower()
                     obj_name = proc_match.group(2)
@@ -376,9 +395,17 @@ class ParserRegistry:
                 block_counter += 1
 
                 obj_type = match.group(1).lower()
-                obj_name_match = re.search(r'CREATE\s+(?:PROCEDURE|FUNCTION)\s+([^\s@]+)', sql_text, re.IGNORECASE)
+                obj_name_match = re.search(r'CREATE\s+(?:PROCEDURE|FUNCTION)\s+([A-Za-z0-9_\]\[\.]+)', sql_text, re.IGNORECASE)
                 obj_name = obj_name_match.group(1) if obj_name_match else "unknown"
+
+                if obj_name == "unknown" and getattr(self, "debug_sql", False):
+                    with open("unparsed_sql_debug.log", "a", encoding="utf-8") as df:
+                        df.write(f"\n--- Unparsed SQL Object Name in {file_id} ---\n{sql_text[:500]}\n")
                 sql_object_id = f"proc:{file_id.split('.')[0]}.{file_id.split('.')[-1]}.{obj_name}"
+
+                if obj_name == "unknown" and getattr(self, "debug_sql", False):
+                    with open("unparsed_sql_debug.log", "a", encoding="utf-8") as df:
+                        df.write(f"\n--- Unparsed SQL Object Name in {file_id} ---\n{sql_text[:500]}\n")
 
                 nodes.append({
                     "id": block_id_full,
@@ -525,7 +552,7 @@ class ParserRegistry:
             })
 
         # 2. Extract Procedure/Function Name
-        proc_match = re.search(r'CREATE\s+(PROCEDURE|FUNCTION)\s+([^\s@]+)', src, re.IGNORECASE)
+        proc_match = re.search(r'CREATE\s+(PROCEDURE|FUNCTION)\s+([A-Za-z0-9_\]\[\.]+)', src, re.IGNORECASE)
         if not proc_match:
             return nodes
             
@@ -599,7 +626,7 @@ class BinaryMemoryBuilder:
         self.imp_idx: Dict[str, str] = {}
         self.topo = 0
         self.embeddings = {}
-        self.parser_registry = ParserRegistry()
+        self.parser_registry = ParserRegistry(debug_sql=getattr(self, 'debug_sql', False))
         self.saver = PipelineSaver(OUTPUT_DIR)
         self.builder_lock = threading.Lock()
 
@@ -623,14 +650,10 @@ class BinaryMemoryBuilder:
         out.sort()
         return out
 
-    def build(self, max_workers: int = 4):
+    def build(self, max_workers: int = 4, debug_sql: bool = False):
+        self.debug_sql = debug_sql
         files = self.discover()
-
-        # Log file extensions
-        ext_counts = {}
-        for f in files:
-            ext_counts[f.suffix] = ext_counts.get(f.suffix, 0) + 1
-        print(f"[Builder] Discovered {len(files)} files. Extensions: {ext_counts}")
+        print(f"[Builder] Discovered {len(files)} files")
 
         # Add root node
         self.add_node({
@@ -658,22 +681,26 @@ class BinaryMemoryBuilder:
         
         for node in nodes:
             self.add_node(node)
-            self.add_edge(".", node["id"], EDGE_TYPE["contains"])
 
-            # Update root node to include child
-            root_node = self.saver.get_node(".")
-            if root_node:
-                with self.builder_lock:
-                    # In a highly concurrent scenario, another thread might have updated it
-                    # So we fetch again under lock or just update the list
-                    current_root = self.saver.get_node(".")
-                    if current_root:
-                        current_root.setdefault("ch", []).append(node["id"])
-                        self.saver.update_node(".", current_root)
+            # Link top level file nodes to root
+            if node["t"] == NODE_TYPE["file"] and node["p"] == ".":
+                self.add_edge(".", node["id"], EDGE_TYPE["contains"])
+                root_node = self.saver.get_node(".")
+                if root_node:
+                    with self.builder_lock:
+                        current_root = self.saver.get_node(".")
+                        if current_root:
+                            current_root.setdefault("ch", []).append(node["id"])
+                            self.saver.update_node(".", current_root)
+
+            # If the node has a parent specified that is NOT the root, explicitly link it to its parent
+            if "p" in node and node["p"] != "." and node["p"] != "":
+                self.add_edge(node["p"], node["id"], EDGE_TYPE["contains"])
 
             with self.builder_lock:
                 self.topo += 1
-            
+
+            # Children are already added to nodes in the parser, but we must link them here
             for child_id in node.get("ch", []):
                 self.add_edge(node["id"], child_id, EDGE_TYPE["contains"])
                 with self.builder_lock:
@@ -767,9 +794,9 @@ class BinaryMemoryBuilder:
         print("[Builder] Starting streaming export...")
 
         # 1. Stream Content (sx signatures) to disk immediately
-        num_nodes_total = self.saver.get_node_count()
         with open(CONTENT_FILE, "wb") as content_f:
-            for j, node in enumerate(self.saver.get_all_nodes()):
+            i = -1
+            for i, node in enumerate(self.saver.get_all_nodes()):
                 sx = node.get("sx", "")
                 offset = content_f.tell()
                 content_bytes = sx.encode("utf-8")
@@ -777,9 +804,9 @@ class BinaryMemoryBuilder:
                 content_offsets.append((offset, len(content_bytes)))
 
                 # Progress every 100 nodes
-                if (j + 1) % 100 == 0:
-                    print(f"\r[Builder] Content: {j+1}/{num_nodes_total} nodes", end="", flush=True)
-        print(f"\r[Builder] Content: {num_nodes_total}/{num_nodes_total} nodes done\n", flush=True)
+                if (i + 1) % 100 == 0:
+                    print(f"\r[Builder] Content: {i+1}/{self.saver.get_node_count()} nodes", end="", flush=True)
+        print(f"\r[Builder] Content: {self.saver.get_node_count()}/{self.saver.get_node_count()} nodes done\n", flush=True)
         
         # 2. Write Index incrementally
         with open(INDEX_FILE, "wb") as idx_f:
@@ -802,7 +829,6 @@ class BinaryMemoryBuilder:
                 
                 idx_f.write(struct.pack('<B', node["t"]))
                 
-                # Handle SQL node types (reverted back to original from the new version we somehow grabbed)
                 if node["t"] in (NODE_TYPE["table"], NODE_TYPE["view"], NODE_TYPE["schema"]):
                     db_name = node.get("db", "")
                     db_bytes = db_name.encode('utf-8')
@@ -852,11 +878,11 @@ class BinaryMemoryBuilder:
                         idx_f.write(struct.pack('<I', len(target_bytes)))
                         idx_f.write(target_bytes)
                 
+                # Check for struct missing unpack vector len fix that was overwritten in earlier patches
                 offset_t, length_t = content_offsets[i]
                 idx_f.write(struct.pack('<Q', offset_t))
                 idx_f.write(struct.pack('<I', length_t))
 
-                # Write 0 for embedding vectors to match binary format expectation
                 idx_f.write(struct.pack('<I', 0))
 
                 # Progress every 100 nodes
@@ -871,31 +897,15 @@ class BinaryMemoryBuilder:
         print(f"[build_binary_memory] Saved {INDEX_FILE} and {CONTENT_FILE}")
         print(f"[build_binary_memory] nodes={self.saver.get_node_count()} edges={self.saver.get_edge_count()}")
 
-        # Output Regression Snapshot
-        stats = {
-            "total_nodes": self.saver.get_node_count(),
-            "total_edges": self.saver.get_edge_count(),
-            "nodes_per_type": {},
-            "avg_degree": self.saver.get_edge_count() / self.saver.get_node_count() if self.saver.get_node_count() > 0 else 0
-        }
-
-        for node in self.saver.get_all_nodes():
-            t = str(node.get("t", "unknown"))
-            stats["nodes_per_type"][t] = stats["nodes_per_type"].get(t, 0) + 1
-
-        stats_file = os.path.join(os.path.dirname(INDEX_FILE), "build_stats.json")
-        with open(stats_file, "w") as sf:
-            json.dump(stats, sf, indent=2)
-        print(f"[build_binary_memory] Regression snapshot saved to {stats_file}")
-
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Phase 1: Binary Index Builder")
     parser.add_argument("--parallel", action="store_true", help="Enable parallel processing")
     parser.add_argument("--workers", type=int, default=None, help="Number of workers")
+    parser.add_argument("--debug-sql", action="store_true", help="Log unparsed SQL objects")
     args = parser.parse_args()
 
     b = BinaryMemoryBuilder(ROOT_DIR)
-    b.build(max_workers=args.workers if args.workers is not None else 4)
+    b.build(max_workers=args.workers if args.workers is not None else 4, debug_sql=args.debug_sql)
     b.export_binary()

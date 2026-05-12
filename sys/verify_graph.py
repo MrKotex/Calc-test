@@ -8,7 +8,7 @@ import os
 NODE_TYPE = {
     0: "root", 1: "file", 2: "class", 3: "function",
     4: "async_function", 5: "table", 6: "column",
-    7: "view", 8: "schema", 9: "database"
+    7: "view", 8: "schema", 9: "database", 10: "html_block"
 }
 
 def verify_graph(db_path=".context-tree/pipeline.db", n_samples=5):
@@ -76,11 +76,11 @@ def verify_graph(db_path=".context-tree/pipeline.db", n_samples=5):
         print("[WARNING] Huge hub nodes detected. Check for runaway clustering.")
 
     # 4. Semantic Random Sampling
-    print(f"\n[Semantic Check] Sampling {min(n_samples, len(file_nodes))} random file nodes:")
+    print(f"\n[Semantic Check] Sampling {min(n_samples, len(file_nodes))} random nodes:")
     samples = random.sample(file_nodes, min(n_samples, len(file_nodes)))
     for fnode in samples:
         fid = fnode["id"]
-        print(f"  File: {fnode.get('n', fid)}")
+        print(f"  Node: {fnode.get('n', fid)}")
         cur.execute("SELECT target FROM edges WHERE source = ? AND type = 1", (fid,))
         children = [r[0] for r in cur.fetchall()]
         print(f"    Children count: {len(children)}")

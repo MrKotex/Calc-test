@@ -168,6 +168,25 @@ class BinaryScoutAgent:
                 # 3. Type
                 ntype = struct.unpack('<B', f.read(1))[0]
                 
+                # Check for SQL nodes
+                if ntype in (NODE_TYPE["table"], NODE_TYPE["view"], NODE_TYPE["schema"]):
+                    db_len = struct.unpack('<I', f.read(4))[0]
+                    db_name = f.read(db_len).decode('utf-8')
+                    columns_count = struct.unpack('<I', f.read(4))[0]
+                    columns = []
+                    for _ in range(columns_count):
+                        col_len = struct.unpack('<I', f.read(4))[0]
+                        column_name = f.read(col_len).decode('utf-8')
+                        columns.append(column_name)
+                    snippet_len = struct.unpack('<I', f.read(4))[0]
+                    snippet = f.read(snippet_len).decode('utf-8')
+                elif ntype == NODE_TYPE["column"]:
+                    table_len = struct.unpack('<I', f.read(4))[0]
+                    table_name = f.read(table_len).decode('utf-8')
+                    dtype_len = struct.unpack('<I', f.read(4))[0]
+                    dtype = f.read(dtype_len).decode('utf-8')
+                    nullable = struct.unpack("?", f.read(1))[0]
+
                 # 4. REFACORED: Generic Edge Array
                 edges_count = struct.unpack('<I', f.read(4))[0]
                 raw_edges = []
@@ -240,6 +259,8 @@ class BinaryScoutAgent:
                     snippet_len = struct.unpack('<I', f.read(4))[0]
                     node_data["snippet"] = f.read(snippet_len).decode('utf-8')
                     
+                elif ntype == 10:
+                    pass
                 elif ntype == NODE_TYPE["column"]:
                     # Read table name
                     table_len = struct.unpack('<I', f.read(4))[0]
